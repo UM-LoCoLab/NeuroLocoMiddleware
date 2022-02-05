@@ -32,19 +32,26 @@ class FlexSEA(flex.FlexSEA):
         pass
 
 
-# See demo scripts for more streamable data
+# See ActPackState for all available data
 labels = [ # matches varsToStream
     "State time",  
     "Motor angle", "Motor velocity", "Motor acceleration",  
     "Motor voltage", "Motor current",   
     "Battery voltage", "Battery current"
 ]
-# varsToStream = [ # integer enums defined in pyFlexsea_def.py
-#     fxUtil.FX_STATETIME,
-#     fxUtil.FX_ENC_ANG, fxUtil.FX_ENC_VEL, fxUtil.FX_ENC_ACC,
-#     fxUtil.FX_MOT_VOLT, fxUtil.FX_MOT_CURR, 
-#     fxUtil.FX_BATT_VOLT, fxUtil.FX_BATT_CURR
-# ]
+DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
+    "state_time",
+    "mot_ang", "mot_vel", "mot_acc",
+    "mot_volt", "mot_cur", 
+    "batt_volt", "batt_curr"
+]
+
+
+
+MOTOR_CLICKS_PER_REVOLUTION = 16384 
+NM_PER_AMP = 0.146
+RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
+RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
 motor_radians_to_ticks = lambda q: q*(180*45.5111/np.pi)
 
@@ -63,7 +70,7 @@ class ActPacMan(object):
     # Class variable that keeps track of the number of connections
     CURRENT_PORT_ID = 0
     
-    def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None, hdf5_file_name=None, gear_ratio=1.0, printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
+    def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None, hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0, printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
         """ Intializes stream and printer """
         #init printer settings
         self.counter = 0
@@ -90,15 +97,15 @@ class ActPacMan(object):
         self.hdf5_file_name = hdf5_file_name
         self.csv_file = None
         self.csv_writer = None
+        self.vars_to_log = vars_to_log
         self.entered = False
         self.state = None
 
     def __enter__(self):
-
         if self.save_csv:
             with open(self.csv_file_name,'w') as fd:
                 writer = csv.writer(fd)
-                writer.writerow(["pi_time"]+self.labels)
+                writer.writerow(["pi_time"]+self.vars_to_log)
             self.csv_file = open(self.csv_file_name,'a').__enter__()
             self.csv_writer = csv.writer(self.csv_file)
 
@@ -118,14 +125,9 @@ class ActPacMan(object):
         self.app_type = fxs.get_app_type(self.dev_id)
         print(self.app_type)
 
-        # Gains are, in order: kp, ki, kd, K, B & ff
-        self.set_current_gains(self, kp=40, ki=400, ff=128)
+        self.state = _ActPacManStates.VOLTAGE
         self.entered = True
         return self
-
-    def _set_gains(self, kp=40, ki=400, kd=0, K=0, B=0, ff=128):
-        # dev.set_gains(kp=40, ki=400, ff=128)
-        FlexSEA().set_gains(self.dev_id, kp, ki, kd, K, B, ff)
 
     def set_position_gains(self, kp=200, ki=50, kd=0):
         self.state=_ActPacManStates.POSITION
@@ -135,42 +137,65 @@ class ActPacMan(object):
         self.state=_ActPacManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
 
-    def set_impedance_gains(self, kp=40, ki=400, K=300, B=1600, ff=128):
+    def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
+        # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
         A = 0.00028444
         C = 0.0007812
-        self.state=_ActPacManStates.CURRENT
+        Nm_per_rad_to_Kunit = RAD_PER_CLICK/C*1e3/NM_PER_AMP
+        Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/NM_PER_AMP
+        # K_Nm_per_rad = torque_Nm/(RAD_PER_CLICK*delta) = 0.146*1e-3*C*K/RAD_PER_CLICK
+        # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
+        self.state=_ActPacManStates.IMPEDANCE
+        FlexSEA().set_gains(self.dev_id, kp, ki, 0, K*Nm_per_rad_to_Kunit, B*Nm_s_per_rad_to_Bunit, ff)
+
+    def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
+        # Use this for integer gains suggested by the dephy website
+        self.state=_ActPacManStates.IMPEDANCE
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, K, B, ff)
 
 
-    def update(self, data_labels = None):
-        data = None
+    def update(self):
+        # fetches new data from the device
+        if not self.entered:
+            raise RuntimeException("ActPacMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
-        if abs(currentTime - self.prevReadTime) >= (1/self.updateFreq):
-            self.data = fxUtil.fxReadDevice(self.devId,self.varsToStream)
+        if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
+            print("warning: re-updating twice in less than a quarter of a time-step")
+        self.act_pack = fxs.read_device(self.dev_id) # a c-types struct
         self.prevReadTime = currentTime
-        if data_labels != None:
-            data_index =[]
-            for label in data_labels:
-                data_index.append(self.varsToStream.index(label))
-            data = [self.data[index] for index in data_index]   
-        else:
-            data = self.data
 
         # Automatically save all the data as a csv file
         if self.save_csv:
-            self.csv_writer.writerow([time.time()]+self.data)
+            self.csv_writer.writerow([time.time()]+[getattr(self.act_pack,x) for x in self.vars_to_log])
+
+        if self.save_hdf5:
+
 
         return data
 
+    @deprecated(version="1.0.0", reason="Convoluted. Just directly access the c-struct")
     def get(self, label):
-        return self.data[self.varsToStream.index(label)]
+        return getattr(self.act_pack, label)
 
+    @deprecated(version="1.0.0", reason="offers nothing over c-struct access. use obj.act_pack.state_time")
     def get_state_time(self):
-        return self.get(fxUtil.FX_STATETIME)
+        return self.act_pack.state_time
 
+    def get_motor_angle_radians(self):
+        return self.act_pack.mot_ang * RAD_PER_CLICK
+
+    @deprecated(version="1.0.0", reason="Unclear units. Use get_motor_angle_rad. Use obj.act_pack.mot_ang for encoder clicks.")
     def get_motor_angle(self):
-        return self.get(fxUtil.FX_ENC_ANG)
+        return self.act_pack.mot_ang
 
+
+    def set_motor_angle_clicks(self, pos):
+        raise NotImplemented()
+
+    def set_motor_angle_radians(self, pos):
+        self.set_motor_angle_clicks(pos/RAD_PER_CLICK)
+
+    @deprecated(version="1.0.0", reason="unclear units (motor clicks). Use set_motor_angle_clicks")
     def set_motor_angle(self, position):
         fxUtil.setPosition(self.devId, position)
 
@@ -344,7 +369,9 @@ def main():
             # fxs.start_streaming(dev_id, 100, log_en=False)
             # app_type = fxs.get_app_type(dev_id)
 
-            # print("Setting controller to current...")
+
+        print("Setting controller to current...")
+        dev.set_current_gains(kp=40, ki=400, ff=128)
             # # Gains are, in order: kp, ki, kd, K, B & ff
             # # dev.set_gains(kp=40, ki=400, ff=128)
             # fxs.set_gains(dev_id, 40, 400, 0, 0, 0, 128)
@@ -360,7 +387,7 @@ def main():
                     (current - prev_current) * (i / float(num_time_steps)) + prev_current
                 )
 
-                # dev.set_current(des_current/1000.) # current in Amps
+                # dev.i = (des_current/1000.) # current in Amps
                 fxs.send_motor_command(dev_id, fxe.FX_CURRENT, des_current)
                 sleep(time_step)
                 # dev.update()
