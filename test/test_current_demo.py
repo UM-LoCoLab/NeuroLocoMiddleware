@@ -9,7 +9,7 @@ export PYTHONPATH={$PYTHONPATH}:/home/pi/NeuroLocoMiddleware.
     """)
   path.append("/home/pi/NeuroLocoMiddleware")
   from SoftRealtimeLoop import SoftRealtimeLoop
-from ActPacMan import ActPacMan
+from ActPackMan import ActPackMan
 
 
 def current_control_demo():
@@ -17,7 +17,7 @@ def current_control_demo():
     time=6
     time_step=0.1
 
-    with ActPacMan('/dev/ttyACM0') as dev:
+    with ActPackMan('/dev/ttyACM0') as dev:
         # dev.__enter__()
             # dev_id = fxs.open(port, baud_rate, log_level=6)
             # fxs.start_streaming(dev_id, 100, log_en=False)
@@ -26,7 +26,7 @@ def current_control_demo():
 
         print("Setting controller to current...")
         dev.set_current_gains(kp=40, ki=400, ff=128)
-        assert(dev._state == _ActPacManStates.CURRENT)
+        assert(dev._state == _ActPackManStates.CURRENT)
             # # Gains are, in order: kp, ki, kd, K, B & ff
             # # dev.set_gains(kp=40, ki=400, ff=128)
             # fxs.set_gains(dev_id, 40, 400, 0, 0, 0, 128)

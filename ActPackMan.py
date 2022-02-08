@@ -56,14 +56,14 @@ RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
 motor_radians_to_ticks = lambda q: q*(180*45.5111/np.pi)
 
-class _ActPacManStates(Enum):
+class _ActPackManStates(Enum):
     VOLTAGE = 1
     CURRENT = 2
     POSITION = 3
     IMPEDANCE = 4
 
 
-class ActPacMan(object):
+class ActPackMan(object):
     """ (Dephy) Actuator Pack Manager
     Keeps track of a single Dephy Actuator
     """
@@ -119,7 +119,7 @@ class ActPacMan(object):
         self.app_type = fxs.get_app_type(self.dev_id)
         print(self.app_type)
 
-        self._state = _ActPacManStates.VOLTAGE
+        self._state = _ActPackManStates.VOLTAGE
         self.entered = True
         return self
 
@@ -134,7 +134,7 @@ class ActPacMan(object):
             print('sleeping')
             # fxs.stop_streaming(self.dev_id) # experimental
             # sleep(0.1) # Works
-            sleep(0.01) # Works
+            time.sleep(0.01) # Works
             # sleep(0.0) # doesn't work in that it results in the following ridiculous warning:
                 # "Detected stream from a previous session, please power cycle the device before continuing"
             print('done sleeping')
@@ -152,7 +152,7 @@ class ActPacMan(object):
     def update(self):
         # fetches new data from the device
         if not self.entered:
-            raise RuntimeError("ActPacMan updated before __enter__ (which begins the streaming)")
+            raise RuntimeError("ActPackMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
         if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
@@ -179,7 +179,7 @@ class ActPacMan(object):
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
         self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.POSITION
+        self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
@@ -188,7 +188,7 @@ class ActPacMan(object):
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
         self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.CURRENT
+        self._state=_ActPackManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
         self.set_current_qaxis_amps(0.0)
 
@@ -200,7 +200,7 @@ class ActPacMan(object):
         assert(isfinite(K) and 0 <= K)
         assert(isfinite(B) and 0 <= B)
         self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.IMPEDANCE
+        self._state=_ActPackManStates.IMPEDANCE
         FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
@@ -221,30 +221,30 @@ class ActPacMan(object):
 
     def get_battery_voltage_volts(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.batt_volt * 1e-3
 
     def get_battery_current_amps(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.batt_curr * 1e-3
 
     def get_voltage_qaxis_volts(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_volt * 1e-3
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
-        self._state = _ActPacManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
+        self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
         FlexSEA().send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_cur * 1e-3
 
     def set_current_qaxis_amps(self, current_q):
-        if self._state != _ActPacManStates.CURRENT:
+        if self._state != _ActPackManStates.CURRENT:
             raise RuntimeError("Motor must be in current mode to accept a current command")
         FlexSEA().send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
 
@@ -253,24 +253,24 @@ class ActPacMan(object):
 
     def get_motor_angle_radians(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_ang*RAD_PER_CLICK
 
     def get_motor_velocity_radians_per_second(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_vel*RAD_PER_DEG # expects deg/sec
 
     def get_motor_acceleration_radians_per_second_squared(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_acc # expects rad/s/s
 
     def get_motor_torque_newton_meters(self):
         return self.get_current_qaxis_amps()*NM_PER_AMP
 
     def set_motor_angle_radians(self, pos):
-        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
+        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
         FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
@@ -313,17 +313,17 @@ class ActPacMan(object):
     # other
     def get_temp_celsius(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.temp*1.0 # expects Celsius
 
     def get_gyro_vector_radians_per_second(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[1.0*self.act_pack.gyro_x, self.act_pack.gyro_y, self.act_pack.gyro_z]]).T*RAD_PER_SEC_PER_GYRO_LSB# 1.0/32.8 * np.pi/180
 
     def get_accelerometer_vector_gravity(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
 
     ## Greek letter math symbol property interface. This is the good
@@ -363,13 +363,13 @@ class ActPacMan(object):
     ## Weird-unit getters and setters
 
     def set_motor_angle_clicks(self, pos):
-        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
+        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
         FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
 
     def get_motor_angle_clicks(self):
         if (self.act_pack is None):
-            raise RuntimeError("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_ang
 
