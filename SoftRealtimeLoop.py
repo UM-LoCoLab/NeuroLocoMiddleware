@@ -78,6 +78,7 @@ class SoftRealtimeLoop(object):
 
 def example_usage_1():
   """ Use a soft realtime loop to print the elapsed time almost exactly every 0.01 seconds. """
+  print("Printing time since the start. Press CTRL-C to finish.")
   t0 = time.time()
   SoftRealtimeLoop().run(lambda: print("in the loop", time.time()-t0), dt=0.01)
 
@@ -94,8 +95,10 @@ def example_usage_2():
   you press CTRL-C, and should see the performance metrics.
 
   """
+
+  print("Testing real-time performance. Press CTRL-C to finish.")
   class Timer():
-    def __init__(self):
+    def __init__(self, dt):
       self.ttarg = time.time()+dt
       self.sum_err = 0.0
       self.sum_var = 0.0
@@ -111,16 +114,17 @@ def example_usage_2():
       print('In %d cycles:'%self.n)
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
-  myTimer=Timer(0.0001)
-  SoftRealtimeLoop().run(myTimer.func, dt=myTimer.dt)
+  dt = 0.0001
+  myTimer=Timer(dt)
+  SoftRealtimeLoop(dt = dt).run(myTimer.func, dt=myTimer.dt)
   myTimer.report()
 
-def example_usage_3(dt = 0.001):
+def example_usage_3(dt = 0.0001):
   """ Use a soft realtime loop with the cool new for-loop syntax!
 
   After CTRL-C, the example will report on timing accuracy.
   """
-  
+  print("Testing real-time performance. Press CTRL-C to finish.")
   ttarg = None 
   sum_err = 0.0
   sum_var = 0.0
@@ -137,7 +141,7 @@ def example_usage_3(dt = 0.001):
     n+=1
     ttarg+=dt
   
-  print('In %d cycles:'%n)
+  print('In %d cycles at %.2f Hz:'%(n, 1./dt))
   print('\tavg error: %.3f milliseconds'% (1e3*sum_err/n))
   print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((sum_var-sum_err**2/n)/(n-1))))
 
