@@ -40,7 +40,7 @@ labels = [ # matches varsToStream
     "Battery voltage", "Battery current"
 ]
 DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
-    "state_time",
+    "_state_time",
     "mot_ang", "mot_vel", "mot_acc",
     "mot_volt", "mot_cur", 
     "batt_volt", "batt_curr"
@@ -49,6 +49,8 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
 
 
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
+RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
+G_PER_ACCELEROMETER_LSB = 1./8192
 NM_PER_AMP = 0.146
 RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
 RAD_PER_DEG = np.pi/180.
@@ -66,50 +68,43 @@ class ActPacMan(object):
     """ (Dephy) Actuator Pack Manager
     Keeps track of a single Dephy Actuator
     """
-
-    # Class variable that keeps track of the number of connections
-    CURRENT_PORT_ID = 0
     
-    def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None, hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0, printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
-        """ Intializes stream and printer """
+    def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None,
+        hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0,
+        printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
+        """ Intializes variables, but does not open the stream. """
+
         #init printer settings
-        self.counter = 0
-        self.prev_data = None
-        self.labels = labels
-        self.data = None
-        self.rate = printingRate
         self.updateFreq = updateFreq
         self.shouldLog = shouldLog
         self.logLevel = logLevel
-        self.prevReadTime = time.time()
+        self.prevReadTime = time.time()-1/self.updateFreq
         self.gear_ratio = gear_ratio
 
-        # load stream data
-        self.devId = None
         # self.varsToStream = varsToStream
-        self.port = ActPacMan.CURRENT_PORT_ID
         self.baudRate = baudRate
         self.devttyACMport = devttyACMport
-        self.devId = None
-        self.save_csv = not (csv_file_name is None)
         self.csv_file_name = csv_file_name
-        self.save_hdf5 = not (hdf5_file_name is None)
         self.hdf5_file_name = hdf5_file_name
         self.csv_file = None
         self.csv_writer = None
         self.vars_to_log = vars_to_log
         self.entered = False
-        self.state = None
+        self._state = None
+        self.act_pack = None # code for never having updated
+
+    ## 'With'-block interface for ensuring a safe shutdown.
 
     def __enter__(self):
-        if self.save_csv:
+        """ Runs when the object is used in a 'with' block. Initializes the comms."""
+        if self.csv_file_name is not None:
             with open(self.csv_file_name,'w') as fd:
                 writer = csv.writer(fd)
                 writer.writerow(["pi_time"]+self.vars_to_log)
             self.csv_file = open(self.csv_file_name,'a').__enter__()
             self.csv_writer = csv.writer(self.csv_file)
 
-        if self.save_hdf5:
+        if self.hdf5_file_name is not None:
             self.hdf5_file = h5py.File(self.hdf5_file_name, 'w')
 
 
@@ -125,34 +120,31 @@ class ActPacMan(object):
         self.app_type = fxs.get_app_type(self.dev_id)
         print(self.app_type)
 
-        self.state = _ActPacManStates.VOLTAGE
+        self._state = _ActPacManStates.VOLTAGE
         self.entered = True
         return self
 
-    def set_position_gains(self, kp=200, ki=50, kd=0):
-        self.state=_ActPacManStates.POSITION
-        FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
+    def __exit__(self, etype, value, tb):
+        """ Runs when leaving scope of the 'with' block. Properly terminates comms and file access."""
 
-    def set_current_gains(self, kp=40, ki=400, ff=128)
-        self.state=_ActPacManStates.CURRENT
-        FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+        if not (self.dev_id is None):
+            print('Turning off control for device %s'%self.devttyACMport)
+            fxs = FlexSEA() # singleton
+            fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
+            self.v = 0.0
+            print('sleeping')
+            sleep(0.5) # I want to delete this TODO
+            print('done sleeping')
+            fxs.close(self.dev_id)
+        
+        if self.csv_file_name is not None:
+            self.csv_file.__exit__(etype, value, tb)
 
-    def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
-        # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
-        A = 0.00028444
-        C = 0.0007812
-        Nm_per_rad_to_Kunit = RAD_PER_CLICK/C*1e3/NM_PER_AMP
-        Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/NM_PER_AMP
-        # K_Nm_per_rad = torque_Nm/(RAD_PER_CLICK*delta) = 0.146*1e-3*C*K/RAD_PER_CLICK
-        # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
-        self.state=_ActPacManStates.IMPEDANCE
-        FlexSEA().set_gains(self.dev_id, kp, ki, 0, K*Nm_per_rad_to_Kunit, B*Nm_s_per_rad_to_Bunit, ff)
+        if not (etype is None):
+            traceback.print_exception(etype, value, tb)
 
-    def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
-        # Use this for integer gains suggested by the dephy website
-        self.state=_ActPacManStates.IMPEDANCE
-        FlexSEA().set_gains(self.dev_id, kp, ki, 0, K, B, ff)
 
+    ## Critical data reading function. Run update exactly once per loop.
 
     def update(self):
         # fetches new data from the device
@@ -165,205 +157,232 @@ class ActPacMan(object):
         self.prevReadTime = currentTime
 
         # Automatically save all the data as a csv file
-        if self.save_csv:
+        if self.csv_file_name is not None:
             self.csv_writer.writerow([time.time()]+[getattr(self.act_pack,x) for x in self.vars_to_log])
 
-        if self.save_hdf5:
-
+        if self.hdf5_file_name is not None:
+            raise NotImplemented()
 
         return data
 
-    @deprecated(version="1.0.0", reason="Convoluted. Just directly access the c-struct")
-    def get(self, label):
-        return getattr(self.act_pack, label)
+    ## Gain Setting and Control Mode Switching (using hidden member self._state)
+    """
+    The behavior of these gain-setting function is to require setting gains
+    before setting the corresponding set-point. Voltage mode requires no
+    gains, and therefore can be accessed at any time. Setting a voltage means
+    gains need to be re-specified before any other mode can be controlled.
+    """
 
-    @deprecated(version="1.0.0", reason="offers nothing over c-struct access. use obj.act_pack.state_time")
-    def get_state_time(self):
-        return self.act_pack.state_time
+    def set_position_gains(self, kp=200, ki=50, kd=0):
+        assert(isfinite(kp) and 0 <= kp and kp <= 1000)
+        assert(isfinite(ki) and 0 <= ki and ki <= 1000)
+        assert(isfinite(kd) and 0 <= kd and kd <= 1000)
+        self.set_voltage_qaxis_volts(0.0)
+        self._state=_ActPacManStates.POSITION
+        FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
+        self.set_motor_angle_radians(self.get_motor_angle_radians())
 
-    def get_motor_angle_radians(self):
-        return self.act_pack.mot_ang * RAD_PER_CLICK
+    def set_current_gains(self, kp=40, ki=400, ff=128)
+        assert(isfinite(kp) and 0 <= kp and kp <= 80)
+        assert(isfinite(ki) and 0 <= ki and ki <= 800)
+        assert(isfinite(ff) and 0 <= ff and ff <= 128)
+        self.set_voltage_qaxis_volts(0.0)
+        self._state=_ActPacManStates.CURRENT
+        FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+        self.set_current_qaxis_amps(0.0)
 
-    @deprecated(version="1.0.0", reason="Unclear units. Use get_motor_angle_rad. Use obj.act_pack.mot_ang for encoder clicks.")
-    def get_motor_angle(self):
-        return self.act_pack.mot_ang
+    def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
+        # Use this for integer gains suggested by the dephy website
+        assert(isfinite(kp) and 0 <= kp and kp <= 80)
+        assert(isfinite(ki) and 0 <= ki and ki <= 800)
+        assert(isfinite(ff) and 0 <= ff and ff <= 128)
+        assert(isfinite(K) and 0 <= K)
+        assert(isfinite(B) and 0 <= B)
+        self.set_voltage_qaxis_volts(0.0)
+        self._state=_ActPacManStates.IMPEDANCE
+        FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+        self.set_motor_angle_radians(self.get_motor_angle_radians())
 
-
-    def set_motor_angle_clicks(self, pos):
-        raise NotImplemented()
-
-    def set_motor_angle_radians(self, pos):
-        self.set_motor_angle_clicks(pos/RAD_PER_CLICK)
-
-    @deprecated(version="1.0.0", reason="unclear units (motor clicks). Use set_motor_angle_clicks")
-    def set_motor_angle(self, position):
-        fxUtil.setPosition(self.devId, position)
-
-    def get_motor_velocity(self):
-        return self.get(fxUtil.FX_ENC_VEL)
-
-    def get_motor_acceleration(self):
-        return self.get(fxUtil.FX_ENC_ACC)
-
-    def get_motor_voltage(self):
-        return self.get(fxUtil.FX_MOT_VOLT)
-        
-    def get_motor_current(self):
-        return self.get(fxUtil.FX_MOT_CURR)
-
-    def get_battery_voltage(self):
-        return self.get(fxUtil.FX_BATT_VOLT)
-
-    def get_battery_current(self):
-        return self.get(fxUtil.FX_BATT_CURR)
-
-    @deprecated(version="1.0.0", reason="Dephy no longer has explicit modes. Use set_gains to change control gains.")
-    def enter_position_control(self, kp=50, ki=3):
-        assert (not(self.data is None))
-        self.init_position = self.get_motor_angle()
-        fxUtil.setPosition(self.devId, self.get_motor_angle())
-        fxUtil.setControlMode(self.devId, fxUtil.CTRL_POSITION)
-        fxUtil.setPosition(self.devId, self.get_motor_angle())
-        fxUtil.setGains(self.devId, kp, ki, 0, 0)
-
-    def zero_position(self):
-        # not tare, since there is no counterweight
-        self.init_position = self.get_motor_angle()
-
-    def enter_no_control(self):
-        fxUtil.setControlMode(self.devId, fxUtil.CTRL_NONE)
-
-    def set_position(self, position):
-        fxUtil.setPosition(self.devId, self.init_position+position)
-
-    def set_phi_desired(self, phi):
-        self.set_position(motor_radians_to_ticks(phi))
-
-    def get_position(self):
-        return self.get_motor_angle()-self.init_position
+    def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
+        # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
+        A = 0.00028444
+        C = 0.0007812
+        Nm_per_rad_to_Kunit = RAD_PER_CLICK/C*1e3/NM_PER_AMP
+        Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/NM_PER_AMP
+        # K_Nm_per_rad = torque_Nm/(RAD_PER_CLICK*delta) = 0.146*1e-3*C*K/RAD_PER_CLICK
+        # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
+        self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit, B=B*Nm_s_per_rad_to_Bunit, ff=ff)
 
 
-    def get_current_qaxis(self):
-        return self.get_motor_current() * 1e-3 * .537/np.sqrt(2.)
+    ## Primary getters and setters
 
+    # electrical variables
 
-    def set_current_qaxis(self, current_q):
-        fxUtil.setMotorCurrent(self.devId, current_q/( 1e-3 * .537/np.sqrt(2.)))
+    def get_battery_voltage_volts(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.batt_volt * 1e-3
 
-
+    def get_battery_current_amps(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.batt_curr * 1e-3
 
     def get_voltage_qaxis_volts(self):
-        return self.get_motor_voltage() * 1e-3 * np.sqrt(3./2.)
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_volt * 1e-3
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
-        self.set_voltage(voltage_qaxis/(1e-3 * np.sqrt(3./2.)))
+        self._state = ActPacManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
+        fxs = FlexSEA() #singleton
+        fxs.send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
+        self.last_sent_voltage = voltage
+        self.set_voltage(voltage_qaxis/(1e-3))
 
-    @deprecated(version="1.0.0", reason="unclear units (V). Use get_voltage_qaxis_volts")
-    def get_voltage_qaxis(self):
-        return self.get_voltage_qaxis_volts()
+    def get_current_qaxis_amps(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_cur * 1e-3
 
-    @deprecated(version="1.0.0", reason="unclear units (V). Use set_voltage_qaxis_volts")
-    def set_voltage_qaxis(self, voltage_qaxis): # volts
-        self.set_voltage_qaxis_volts(voltage_qaxis)
+    def set_current_qaxis_amps(self, current_q):
+        if self._state != _ActPacManStates.CURRENT:
+            raise RuntimeException("Motor must be in current mode to accept a current command")
+        fxs.send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
 
-    ## Short math symbol versions
+
+    # motor-side variables
+
+    def get_motor_angle_radians(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_ang*RAD_PER_CLICK
+
+    def get_motor_velocity_radians_per_second(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_vel*RAD_PER_DEG # expects deg/sec
+
+    def get_motor_acceleration_radians_per_second_squared(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_acc # expects rad/s/s
+
+    def get_motor_torque_newton_meters(self):
+        return self.get_current_qaxis_amps()*NM_PER_AMP
+
+    def set_motor_angle_radians(self, pos):
+        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
+            raise RuntimeException(
+                "Motor must be in position or impedance mode to accept a position setpoint")
+        fxs.send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
+
+    def set_motor_velocity_radians_per_second(self, motor_velocity):
+        raise NotImplemented() # potentially a way to specify position, impedance, or voltage commands.
+
+    def set_motor_acceleration_radians_per_second_squared(self, motor_acceleration):
+        raise NotImplemented() # potentially a way to specify position, impedance, or current commands.
+
+    def set_motor_torque_newton_meters(self, torque):
+        return self.set_current_qaxis_amps(torque/NM_PER_AMP)
+
+    # output variables
+
+    def get_output_angle_radians(self):
+        return self.get_motor_angle_radians()/self.gear_ratio
+
+    def get_output_velocity_radians_per_second(self):
+        return self.get_motor_velocity_radians_per_second()/self.gear_ratio
+
+    def get_output_acceleration_radians_per_second_squared(self):
+        return self.get_motor_acceleration_radians_per_second_squared()/self.gear_ratio
+
+    def get_output_torque_newton_meters(self):
+        return self.get_motor_torque_newton_meters()*self.gear_ratio
+
+    def set_output_angle_radians(self, angle):
+        self.set_motor_angle_radians(angle*self.gear_ratio)
+
+    def set_output_velocity_radians_per_second(self, vel):
+        self.set_motor_velocity_radians_per_second(vel*self.gear_ratio)
+
+    def set_output_acceleration_radians_per_second_squared(self, acc):
+        self.set_motor_acceleration_radians_per_second_squared(acc*self.gear_ratio)
+
+    def set_output_torque_newton_meters(self, torque):
+        self.set_motor_torque_newton_meters(torque/self.gear_ratio)
+
+    # other
+    def get_temp_celsius(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.temp*1.0 # expects Celsius
+
+    def get_gyro_vector_radians_per_second(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return np.array([[1.0*self.act_pack.gyro_x, self.act_pack.gyro_y, self.act_pack.gyro_z]]).T*RAD_PER_SEC_PER_GYRO_LSB# 1.0/32.8 * np.pi/180
+
+    def get_accelerometer_vector_gravity(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
+
+    ## Greek letter math symbol property interface. This is the good
+    #  interface, for those who like code that resembles math. It works best
+    #  to use the UnicodeMath plugin for sublime-text, "Fast Unicode Math
+    #  Characters" in VS Code, or the like to allow easy typing of ϕ, θ, and
+    #  τ.
+
+    # electrical variables
     v = property(get_voltage_qaxis_volts, set_voltage_qaxis_volts, doc="voltage_qaxis_volts")
+    i = property(get_current_qaxis_amps, set_current_qaxis_amps, doc="current_qaxis_amps")
+
+    # motor-side variables
     ϕ = property(get_motor_angle_radians, set_motor_angle_radians, doc="motor_angle_radians")
     ϕd = property (get_motor_velocity_radians_per_second, 
         set_motor_velocity_radians_per_second, doc="motor_velocity_radians_per_second")
     ϕdd = property(get_motor_acceleration_radians_per_second_squared, 
         set_motor_acceleration_radians_per_second_squared, 
         doc="motor_acceleration_radians_per_second_squared")
+    τm = property(get_motor_torque_newton_meters, set_motor_torque_newton_meters,
+        doc="motor_torque_newton_meters")
+
+    # output-side variables
     θ = property(get_output_angle_radians, set_output_angle_radians)
     θd = property(get_output_velocity_radians_per_second, 
         set_output_velocity_radians_per_second, doc="output_velocity_radians_per_second")
     θdd = property(get_output_acceleration_radians_per_second_squared, 
         set_output_acceleration_radians_per_second_squared,
         doc="output_acceleration_radians_per_second_squared")
-    τm = property(get_motor_torque_newton_meters, set_motor_torque_newton_meters,
-        doc="motor_torque_newton_meters")
     τ = property(get_output_torque_newton_meters, set_output_torque_newton_meters,
         doc="output_torque_newton_meters")
 
-    def get_phi(self):
-        return ticks_to_motor_radians(self.get_position())
+    # other
+    α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
+    ω = property(get_gyro_vector_radians_per_second, doc="gyro vector, rad/s")
 
-    def get_phi_dot(self):
-        return ticks_to_motor_radians(self.get_motor_velocity())*1000 # only for older motors. 
+    ## Weird-unit getters and setters
 
+    def set_motor_angle_clicks(self, pos):
+        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
+            raise RuntimeException(
+                "Motor must be in position or impedance mode to accept a position setpoint")
+        fxs.send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
 
-    @deprecated(version="1.0.0", reason="Unclear units. Try set_voltage_milliamps")
-    def set_voltage(self, voltage): # mA
-
-    def set_voltage(self, voltage): # mA
-        fxs = FlexSEA() #singleton
-        fxs.send_motor_command(self.dev_id, fxe.FX_NONE, voltage)
-        fxUtil.setMotorVoltage(self.devId, voltage)
-        self.last_sent_voltage = voltage
-
-    def get_last_qaxis_voltage_command(self):
-        return self.last_sent_voltage * 1e-3 * np.sqrt(3./2.)
-
-    def printData(self, clear_terminal = True, message = ""):
-        """ Prints data with a predetermined delay, data must be updated before calling this function """
-        if clear_terminal:
-            clearTerminal()
-        if message != "":
-            print(message)
-        if(self.counter% self.rate == 0):
-            fxUtil.printData(self.labels,self.data)
-            self.prev_data = self.data
-        else:
-            fxUtil.printData(self.labels,self.prev_data)
-        self.counter += 1
-    
-    def __exit__(self, etype, value, tb):
-        """ Closes stream properly """
-
-        if not (self.dev_id is None):
-            print('Turning off control for device %s'%self.devttyACMport)
-            fxs = FlexSEA() # singleton
-            # dev.__exit__()
-            # dev.set_voltage(0.0) # voltage in Volts
-            # fxs.send_motor_command(dev_id, fxe.FX_NONE, 0)
-            # sleep(0.5)
-            # fxs.close(dev_id)
-            fxs.send_motor_command(self.devId, fxe.FX_NONE, 0) # 0 mV
-            self.set_voltage(0.0)
-            print('sleeping')
-            sleep(0.5) # I want to delete this
-            print('done sleeping')
-            print('Position control ended for device %s'%self.devttyACMport)
-            fxs.close(self.devId)
-        
-        if self.save_csv:
-            self.csv_file.__exit__(etype, value, tb)
-
-        if not (etype is None):
-            traceback.print_exception(etype, value, tb)
+    def get_motor_angle_clicks(self):
+        if (self.act_pack is None):
+            raise RuntimeException("ActPacMan not updated before state is queried.")
+        return self.act_pack.mot_ang
 
 
 
-def main():
-    with ActPacMan('/dev/ttyACM0', 230400) as dev0:
-        pass
-
-
-
-
-
-def main():
-    fxs = FlexSEA()
-    port = '/dev/ttyACM0'
-    baud_rate = 230400
-    hold_current=None
+def current_control_demo():
+    hold_current=[1000]
     time=6
     time_step=0.1
-    if hold_current is None:
-        hold_current = [1000] # mA
 
-    # dev = ActPacMan('/dev/ttyACM0', 230400)
-    with ActPacMan('/dev/ttyACM0', 230400) as dev:
+    with ActPacMan('/dev/ttyACM0') as dev:
         # dev.__enter__()
             # dev_id = fxs.open(port, baud_rate, log_level=6)
             # fxs.start_streaming(dev_id, 100, log_en=False)
@@ -372,6 +391,7 @@ def main():
 
         print("Setting controller to current...")
         dev.set_current_gains(kp=40, ki=400, ff=128)
+        assert(dev._state == _ActPacManStates.CURRENT)
             # # Gains are, in order: kp, ki, kd, K, B & ff
             # # dev.set_gains(kp=40, ki=400, ff=128)
             # fxs.set_gains(dev_id, 40, 400, 0, 0, 0, 128)
@@ -387,19 +407,24 @@ def main():
                     (current - prev_current) * (i / float(num_time_steps)) + prev_current
                 )
 
-                # dev.i = (des_current/1000.) # current in Amps
-                fxs.send_motor_command(dev_id, fxe.FX_CURRENT, des_current)
+                try:
+                    dev.ϕ = 0.0
+                except RuntimeException as e:
+                    pass
+                else:
+                    raise AssertionError()
+                dev.update()
+
+                dev.i = (des_current/1000.) # q-axis current in Amps
+                # fxs.send_motor_command(dev_id, fxe.FX_CURRENT, des_current)
                 sleep(time_step)
-                # dev.update()
-                act_pack = fxs.read_device(dev_id)
                 fxu.clear_terminal()
-                print("Desired (mA):         ", des_current)
-                # print("Measured (A):        ", dev.get_current())
-                print("Measured (mA):        ", act_pack.mot_cur)
-                print("Difference (mA):      ", (act_pack.mot_cur - des_current), "\n")
+                print("Desired (A):         ", 1000*des_current)
+                print("Measured (A):        ", dev.i)
+                print("Difference (A):      ", (dev.i - 1000*des_current), "\n")
 
                 # dev.dephy_print_device()
-                fxu.print_device(act_pack, app_type)
+                fxu.print_device(dev.act_pack, app_type)
             prev_current = current
 
         print("Turning off current control...")
@@ -407,27 +432,19 @@ def main():
         ramp_down_steps = 50
         for step in range(ramp_down_steps):
             des_current = prev_current * (ramp_down_steps - step) / ramp_down_steps
-            # dev.set_current(des_current/1000.) # current in Amps
-            fxs.send_motor_command(dev_id, fxe.FX_CURRENT, des_current)
-            # dev.update()
-            act_pack = fxs.read_device(dev_id)
+            dev.i=(des_current/1000.) # current in Amps
+            dev.update()
             fxu.clear_terminal()
-            print("Desired (mA):         ", des_current)
-            print("Measured (mA):        ", act_pack.mot_cur)
-            print("Difference (mA):      ", (act_pack.mot_cur - des_current), "\n")
+            print("Desired (A):         ", 1000*des_current)
+            print("Measured (A):        ", dev.get_current_qaxis_amps())
+            print("Difference (A):      ", (dev.get_current_qaxis_amps() - 1000*des_current), "\n")
             # dev.dephy_print_device()
-            fxu.print_device(act_pack, app_type)
+            fxu.print_device(dev.act_pack, dev.app_type)
             sleep(time_step)
-
-        # When we exit we want the motor to be off
-
-    # dev.__exit__()
-    # dev.set_voltage(0.0) # voltage in mVolts
-    fxs.send_motor_command(dev_id, fxe.FX_NONE, 0)
-    sleep(0.5)
-    fxs.close(dev_id)
+    
 
 if __name__ == '__main__':
     from time import sleep
     from SoftRealtimeLoop import SoftRealtimeLoop # helps with the shutdown process
-    main()
+    current_control_demo()
+    print("done with current_control_demo()")
