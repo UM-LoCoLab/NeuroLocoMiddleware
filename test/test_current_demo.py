@@ -26,7 +26,7 @@ def current_control_demo():
 
         print("Setting controller to current...")
         dev.set_current_gains(kp=40, ki=400, ff=128)
-        assert(dev._state == _ActPackManStates.CURRENT)
+        # assert(dev._state == _ActPackManStates.CURRENT)
             # # Gains are, in order: kp, ki, kd, K, B & ff
             # # dev.set_gains(kp=40, ki=400, ff=128)
             # fxs.set_gains(dev_id, 40, 400, 0, 0, 0, 128)

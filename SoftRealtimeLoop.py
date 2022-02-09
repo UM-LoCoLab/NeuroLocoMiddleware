@@ -33,10 +33,21 @@ class LoopKiller:
     self.kill_now = True
 
 class SoftRealtimeLoop(object):
-  def __init__(self, dt=0.001):
+  def __init__(self, dt=0.001, report=False):
     self.t0 = self.t1 = time.time()
     self.killer = LoopKiller()
     self.dt = dt
+    self.ttarg = None 
+    self.sum_err = 0.0
+    self.sum_var = 0.0
+    self.n = 0
+    self.report=report
+
+  def __del__(self):
+    if self.report:
+      print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
+      print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
+      print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
 
   def run(self, function_in_loop, dt=None):
     if dt is None:
@@ -75,6 +86,16 @@ class SoftRealtimeLoop(object):
     if self.killer.kill_now:
       raise StopIteration
     self.t1+=self.dt
+    if self.ttarg is None: 
+      # inits ttarg on first call
+      self.ttarg = time.time()+self.dt
+      # then skips the first loop
+      return self.t1-self.t0
+    error = time.time()-self.ttarg # seconds
+    self.sum_err += error
+    self.sum_var += error**2
+    self.n+=1
+    self.ttarg+=self.dt
     return self.t1-self.t0
 
 

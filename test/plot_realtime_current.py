@@ -1,4 +1,24 @@
+
+from rtplot import client
+
 from sys import path
+
+
+#Initialize the plotter
+plot_config1 = {'names':['position (rad)'],
+               'yrange':[-3.14,3.14],
+               'title':"Motor Position",
+               'ylabel':"Motor Position (radians)"}
+
+plot_config2 = {'names':['current (amps)'],
+               'yrange':[-3,3],
+               'title':"Motor Current",
+               'ylabel':"Motor Current (amps)"}
+
+
+#client.initialize_plots(2)
+client.initialize_plots([plot_config1, plot_config2])
+
 try:
   from SoftRealtimeLoop import SoftRealtimeLoop
 except ModuleNotFoundError:
@@ -55,9 +75,7 @@ def current_demo(dev, amp=1.0, dt=0.001):
     sum_var = 0.0
     n = 0
     chirp = Chirp(250, 50, .25)
-    dev.update()
-    dev.set_current_gains()
-    time.sleep(0.5)
+    dev.set_current_gains(kp=40, ki=400, ff=128)
     for t in SoftRealtimeLoop(dt = dt):
         if ttarg is None: 
             # inits ttarg on first call
@@ -65,9 +83,12 @@ def current_demo(dev, amp=1.0, dt=0.001):
             # then skips the first loop
             continue
         # print(t, chirp._phase)
+        dev.i=amp*chirp.next(t) # a barely audible note
         dev.update()
-        print(dev.θ*180/3.1415)
-        dev.τ=amp*chirp.next(t)*3/3.7 # a barely audible note
+
+        #Get angle
+        client.send_array([dev.θ, dev.i])
+
         error = time.time()-ttarg # seconds
         sum_err += error
         sum_var += error**2
@@ -79,6 +100,6 @@ def current_demo(dev, amp=1.0, dt=0.001):
     print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((sum_var-sum_err**2/n)/(n-1))))
 
 if __name__ == '__main__':
-    with ActPackMan('/dev/ttyACM1', gear_ratio=9, updateFreq=1000) as dev:
+    with ActPackMan('/dev/ttyACM0', updateFreq=1000, gear_ratio=9) as dev:
         current_demo(dev, amp=3.0)
     print("done with current_demo()")

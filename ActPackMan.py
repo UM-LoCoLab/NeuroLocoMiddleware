@@ -39,7 +39,7 @@ labels = [ # matches varsToStream
     "Battery voltage", "Battery current"
 ]
 DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
-    "_state_time",
+    "state_time",
     "mot_ang", "mot_vel", "mot_acc",
     "mot_volt", "mot_cur", 
     "batt_volt", "batt_curr"
@@ -134,7 +134,7 @@ class ActPackMan(object):
             print('sleeping')
             # fxs.stop_streaming(self.dev_id) # experimental
             # sleep(0.1) # Works
-            time.sleep(0.01) # Works
+            time.sleep(0.001) # Works
             # sleep(0.0) # doesn't work in that it results in the following ridiculous warning:
                 # "Detected stream from a previous session, please power cycle the device before continuing"
             print('done sleeping')
@@ -183,13 +183,17 @@ class ActPackMan(object):
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
-    def set_current_gains(self, kp=40, ki=400, ff=128):
+    def set_current_gains(self, kp=40, ki=400, ff=128, spoof=False):
+        """ sets the current gains. """
+        print(kp, ki, ff)
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
         self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+
+        
         self.set_current_qaxis_amps(0.0)
 
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
@@ -254,7 +258,7 @@ class ActPackMan(object):
     def get_motor_angle_radians(self):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
-        return self.act_pack.mot_ang*RAD_PER_CLICK
+        return int(self.act_pack.mot_ang)*RAD_PER_CLICK
 
     def get_motor_velocity_radians_per_second(self):
         if (self.act_pack is None):
@@ -325,6 +329,7 @@ class ActPackMan(object):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
+
 
     ## Greek letter math symbol property interface. This is the good
     #  interface, for those who like code that resembles math. It works best
