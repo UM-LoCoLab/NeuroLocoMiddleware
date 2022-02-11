@@ -49,9 +49,9 @@ def example_usage_2():
       print('In %d cycles:'%self.n)
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
-  dt = 0.0001
+  dt = 0.001
   myTimer=Timer(dt)
-  SoftRealtimeLoop(dt = dt).run(myTimer.func, dt=myTimer.dt)
+  SoftRealtimeLoop(dt = dt, report=True).run(myTimer.func, dt=myTimer.dt)
   myTimer.report()
 
 if __name__ == '__main__':

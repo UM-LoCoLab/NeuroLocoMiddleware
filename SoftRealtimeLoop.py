@@ -18,6 +18,7 @@ from math import sqrt
 # print(dir(asyncio))
 # print(asyncio.__name__)
 # exit()
+PRECISION_OF_SLEEP = 0.0001
 
 # Version of the SoftRealtimeLoop library
 __version__="1.0.0"
@@ -40,6 +41,7 @@ class SoftRealtimeLoop(object):
     self.ttarg = None 
     self.sum_err = 0.0
     self.sum_var = 0.0
+    self.sleep_t_agg = 0.0
     self.n = 0
     self.report=report
 
@@ -48,6 +50,7 @@ class SoftRealtimeLoop(object):
       print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
+      print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/self.time()*100.))
 
   def run(self, function_in_loop, dt=None):
     if dt is None:
@@ -61,6 +64,15 @@ class SoftRealtimeLoop(object):
         if signal.sigtimedwait([signal.SIGTERM,signal.SIGINT,signal.SIGHUP], 0):
           self.stop()
       self.t1+=dt
+    print("Soft realtime loop has ended successfully.")
+
+  def run(self, function_in_loop, dt=None):
+    if dt is None:
+      dt = self.dt
+    for t in self:
+      ret = function_in_loop()
+      if ret==0:
+        self.stop()
     print("Soft realtime loop has ended successfully.")
 
   def stop(self):
@@ -79,6 +91,11 @@ class SoftRealtimeLoop(object):
   def __next__(self):
     if self.killer.kill_now:
       raise StopIteration
+
+    while time.time()<self.t1-2*PRECISION_OF_SLEEP and not self.killer.kill_now:
+      t_pre_sleep = time.time()
+      time.sleep(max(PRECISION_OF_SLEEP,self.t1-time.time()-PRECISION_OF_SLEEP))
+      self.sleep_t_agg+=time.time()-t_pre_sleep
 
     while time.time()<self.t1 and not self.killer.kill_now:
       if signal.sigtimedwait([signal.SIGTERM,signal.SIGINT,signal.SIGHUP], 0):
