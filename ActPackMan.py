@@ -183,17 +183,13 @@ class ActPackMan(object):
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
-    def set_current_gains(self, kp=40, ki=400, ff=128, spoof=False):
-        """ sets the current gains. """
-        print(kp, ki, ff)
+    def set_current_gains(self, kp=40, ki=400, ff=128):
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
         self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
-
-        
         self.set_current_qaxis_amps(0.0)
 
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
