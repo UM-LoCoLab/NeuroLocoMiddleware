@@ -24,19 +24,57 @@ PRECISION_OF_SLEEP = 0.0001
 __version__="1.0.0"
 
 class LoopKiller:
-  kill_now = False
-  def __init__(self):
-    signal.signal(signal.SIGTERM, self.exit_gracefully)
-    signal.signal(signal.SIGINT, self.exit_gracefully)
-    signal.signal(signal.SIGHUP, self.exit_gracefully)
+  def __init__(self, fade_time=0.0):
+    signal.signal(signal.SIGTERM, self.handle_signal)
+    signal.signal(signal.SIGINT, self.handle_signal)
+    signal.signal(signal.SIGHUP, self.handle_signal)
+    self._fade_time = fade_time
+    self._soft_kill_time = None
 
-  def exit_gracefully(self,signum, frame):
-    self.kill_now = True
+  def handle_signal(self,signum, frame):
+    self.kill_now=True
+
+  def get_fade(self):
+    # interpolates from 1 to zero with soft fade out
+    if self._kill_soon:
+      t = time.time()-self._soft_kill_time
+      if t>=self._fade_time:
+        return 0.0
+      return 1.0-(t/self._fade_time)
+    return 1.0
+
+  _kill_now = False
+  _kill_soon = False
+  @property
+  def kill_now(self):
+    if self._kill_now:
+      return True
+    if self._kill_soon:
+      t = time.time()-self._soft_kill_time
+      if t>self._fade_time:
+        self._kill_now=True
+    return self._kill_now
+
+  @kill_now.setter
+  def kill_now(self, val):
+    if val:
+      if self._kill_soon: # if you kill twice, then it becomes immediate
+        self._kill_now = True
+      else:
+        if self._fade_time > 0.0:
+          self._kill_soon = True
+          self._soft_kill_time = time.time()
+        else:
+          self._kill_now = True
+    else:
+      self._kill_now = False
+      self._kill_soon = False
+      self._soft_kill_time = None
 
 class SoftRealtimeLoop(object):
-  def __init__(self, dt=0.001, report=False):
+  def __init__(self, dt=0.001, report=False, fade=0.0):
     self.t0 = self.t1 = time.time()
-    self.killer = LoopKiller()
+    self.killer = LoopKiller(fade_time=fade)
     self.dt = dt
     self.ttarg = None 
     self.sum_err = 0.0
@@ -51,6 +89,10 @@ class SoftRealtimeLoop(object):
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
       print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/self.time()*100.))
+
+  @property
+  def fade(self):
+    return self.killer.get_fade()
 
   def run(self, function_in_loop, dt=None):
     if dt is None:

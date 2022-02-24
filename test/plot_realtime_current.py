@@ -1,37 +1,12 @@
-
 from rtplot import client
-
 from sys import path
-
-
-#Initialize the plotter
-plot_config1 = {'names':['position (rad)'],
-               'yrange':[-3.14,3.14],
-               'title':"Motor Position",
-               'ylabel':"Motor Position (radians)"}
-
-plot_config2 = {'names':['current (amps)'],
-               'yrange':[-3,3],
-               'title':"Motor Current",
-               'ylabel':"Motor Current (amps)"}
-
-
-#client.initialize_plots(2)
-client.initialize_plots([plot_config1, plot_config2])
-
-try:
-  from SoftRealtimeLoop import SoftRealtimeLoop
-except ModuleNotFoundError:
-  print("module SoftRealtimeLoop not found in path: %s"%path)
-  print("to add SoftRealtimeLoop to the path, edit the .bashrc file like so:")
-  print("""
-export PYTHONPATH={$PYTHONPATH}:/home/pi/NeuroLocoMiddleware.
-    """)
-  path.append("/home/pi/NeuroLocoMiddleware")
-  from SoftRealtimeLoop import SoftRealtimeLoop
+from FindLibrariesWarning import *
+from SoftRealtimeLoop import SoftRealtimeLoop
 from ActPackMan import ActPackMan
 from math import sin, pi, sqrt, log, exp
+from SysID import Chirp
 import time
+
 
 
 def current_demo(dev, amp=1.0):
@@ -40,35 +15,21 @@ def current_demo(dev, amp=1.0):
     for t in SoftRealtimeLoop(dt=0.001):
         dev.i=amp*sin(t*55*2*pi) # a musical note three octaves below 440 Hz A
 
-class Chirp():
-    def __init__(self, start_freq_Hz, end_freq_Hz, time, repeat=True):
-        self._start_freq = start_freq_Hz*2*pi
-        self._end_freq = end_freq_Hz*2*pi
-        self._maxtime = time
-        self._repeat = repeat
-        self._end_log_ω = log(self._end_freq)
-        self._phase_growth_rate = log(self._end_freq/self._start_freq)/self._maxtime
-        self._sign_growth = self._phase_growth_rate/abs(self._phase_growth_rate)
-        self._phase = 0.0
-        self._last_t = 0.0
-        self._log_ω = log(self._start_freq)
-        assert(self._log_ω*self._sign_growth < self._end_log_ω*self._sign_growth)
-
-    def next(self, t):
-        dt = (t-self._last_t)
-        self._last_t = t
-        self._log_ω+=self._phase_growth_rate*dt
-        if self._log_ω*self._sign_growth >= self._end_log_ω*self._sign_growth:
-            if self._repeat:
-                self._log_ω-=self._phase_growth_rate*self._maxtime
-            else:
-                raise StopIteration()
-        self._phase+=exp(self._log_ω)*dt
-        return sin(self._phase)
-
-
 
 def current_demo(dev, amp=1.0, dt=0.001):
+    #Initialize the plotter
+    plot_config1 = {'names':['position (rad)'],
+                   'yrange':[-3.14,3.14],
+                   'title':"Motor Position",
+                   'ylabel':"Motor Position (radians)"}
+
+    plot_config2 = {'names':['current (amps)'],
+                   'yrange':[-3,3],
+                   'title':"Motor Current",
+                   'ylabel':"Motor Current (amps)"}
+    #client.initialize_plots(2)
+    client.initialize_plots([plot_config1, plot_config2])
+
     print("Testing real-time performance. Press CTRL-C to finish.")
     ttarg = None 
     sum_err = 0.0

@@ -1,14 +1,5 @@
-from sys import path
-try:
-  from SoftRealtimeLoop import SoftRealtimeLoop
-except ModuleNotFoundError:
-  print("module SoftRealtimeLoop not found in path: %s"%path)
-  print("to add SoftRealtimeLoop to the path, edit the .bashrc file like so:")
-  print("""
-export PYTHONPATH={$PYTHONPATH}:/home/pi/NeuroLocoMiddleware.
-    """)
-  path.append("/home/pi/NeuroLocoMiddleware")
-  from SoftRealtimeLoop import SoftRealtimeLoop
+from FindLibrariesWarning import *
+from SoftRealtimeLoop import SoftRealtimeLoop
 from ActPackMan import ActPackMan
 
 
