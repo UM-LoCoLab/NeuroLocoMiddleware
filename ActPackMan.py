@@ -8,6 +8,8 @@ import numpy as np
 import h5py
 import deprecated
 from enum import Enum
+from math import isfinite
+from os.path import realpath
 
 # Dephy library import
 from flexsea import fxUtils as fxu  # pylint: disable=no-name-in-module
@@ -16,8 +18,6 @@ from flexsea import flexsea as flex
 
 # Version of the ActPackMan library
 __version__="1.0.0"
-
-
 
 class FlexSEA(flex.FlexSEA):
     """ A singleton class that prevents re-initialization of FlexSEA """
@@ -40,7 +40,7 @@ labels = [ # matches varsToStream
     "Battery voltage", "Battery current"
 ]
 DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
-    "_state_time",
+    "state_time",
     "mot_ang", "mot_vel", "mot_acc",
     "mot_volt", "mot_cur", 
     "batt_volt", "batt_curr"
@@ -57,14 +57,14 @@ RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
 motor_radians_to_ticks = lambda q: q*(180*45.5111/np.pi)
 
-class _ActPacManStates(Enum):
+class _ActPackManStates(Enum):
     VOLTAGE = 1
     CURRENT = 2
     POSITION = 3
     IMPEDANCE = 4
 
 
-class ActPacMan(object):
+class ActPackMan(object):
     """ (Dephy) Actuator Pack Manager
     Keeps track of a single Dephy Actuator
     """
@@ -83,7 +83,8 @@ class ActPacMan(object):
 
         # self.varsToStream = varsToStream
         self.baudRate = baudRate
-        self.devttyACMport = devttyACMport
+        self.named_port = devttyACMport
+        self.devttyACMport = realpath(devttyACMport)
         self.csv_file_name = csv_file_name
         self.hdf5_file_name = hdf5_file_name
         self.csv_file = None
@@ -92,7 +93,6 @@ class ActPacMan(object):
         self.entered = False
         self._state = None
         self.act_pack = None # code for never having updated
-
     ## 'With'-block interface for ensuring a safe shutdown.
 
     def __enter__(self):
@@ -111,16 +111,21 @@ class ActPacMan(object):
         fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
         # dev_id = fxs.open(port, baud_rate, log_level=6)
         self.dev_id = fxs.open(self.devttyACMport, self.baudRate, log_level=self.logLevel)
+        
         # fxs.start_streaming(dev_id, 100, log_en=False)
-        print('devID', self.dev_id)
         # Start stream
+        # fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
         fxs.start_streaming(self.dev_id, self.updateFreq, log_en=self.shouldLog)
+        print('devID %d streaming from %s (i.e. %s)'%(
+            self.dev_id, self.devttyACMport, self.named_port))
+            
+        time.sleep(0.1)
 
         # app_type = fxs.get_app_type(dev_id)
-        self.app_type = fxs.get_app_type(self.dev_id)
-        print(self.app_type)
+        # self.app_type = fxs.get_app_type(self.dev_id)
+        # print(self.app_type)
 
-        self._state = _ActPacManStates.VOLTAGE
+        self._state = _ActPackManStates.VOLTAGE
         self.entered = True
         return self
 
@@ -128,14 +133,25 @@ class ActPacMan(object):
         """ Runs when leaving scope of the 'with' block. Properly terminates comms and file access."""
 
         if not (self.dev_id is None):
-            print('Turning off control for device %s'%self.devttyACMport)
+            print('Turning off control for device %s (i.e. %s)'%(self.devttyACMport, self.named_port))
+            t0=time.time()
             fxs = FlexSEA() # singleton
-            fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
+            # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
             self.v = 0.0
-            print('sleeping')
-            sleep(0.5) # I want to delete this TODO
-            print('done sleeping')
+            # fxs.stop_streaming(self.dev_id) # experimental
+            # sleep(0.1) # Works
+            self.update()
+            time.sleep(1.0/self.updateFreq) # Works
+            while(abs(self.i)>0.1):
+                self.update()
+                self.v = 0.0
+                time.sleep(1.0/self.updateFreq)
+                # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
+            # sleep(0.0) # doesn't work in that it results in the following ridiculous warning:
+                # "Detected stream from a previous session, please power cycle the device before continuing"
             fxs.close(self.dev_id)
+            time.sleep(1.0/self.updateFreq)
+            print('done.', time.time()-t0)
         
         if self.csv_file_name is not None:
             self.csv_file.__exit__(etype, value, tb)
@@ -149,11 +165,11 @@ class ActPacMan(object):
     def update(self):
         # fetches new data from the device
         if not self.entered:
-            raise RuntimeException("ActPacMan updated before __enter__ (which begins the streaming)")
+            raise RuntimeError("ActPackMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
         if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
-        self.act_pack = fxs.read_device(self.dev_id) # a c-types struct
+        self.act_pack = FlexSEA().read_device(self.dev_id) # a c-types struct
         self.prevReadTime = currentTime
 
         # Automatically save all the data as a csv file
@@ -162,8 +178,6 @@ class ActPacMan(object):
 
         if self.hdf5_file_name is not None:
             raise NotImplemented()
-
-        return data
 
     ## Gain Setting and Control Mode Switching (using hidden member self._state)
     """
@@ -178,18 +192,19 @@ class ActPacMan(object):
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
         self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.POSITION
+        self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
-    def set_current_gains(self, kp=40, ki=400, ff=128)
+    def set_current_gains(self, kp=40, ki=400, ff=128):
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
-        self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.CURRENT
+        # self.set_voltage_qaxis_volts(0.0)
+        self._state=_ActPackManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
-        self.set_current_qaxis_amps(0.0)
+        # self.set_current_qaxis_amps(0.0)
+        time.sleep(0.05)
 
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
         # Use this for integer gains suggested by the dephy website
@@ -199,7 +214,7 @@ class ActPacMan(object):
         assert(isfinite(K) and 0 <= K)
         assert(isfinite(B) and 0 <= B)
         self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPacManStates.IMPEDANCE
+        self._state=_ActPackManStates.IMPEDANCE
         FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
@@ -220,62 +235,59 @@ class ActPacMan(object):
 
     def get_battery_voltage_volts(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.batt_volt * 1e-3
 
     def get_battery_current_amps(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.batt_curr * 1e-3
 
     def get_voltage_qaxis_volts(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_volt * 1e-3
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
-        self._state = ActPacManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
-        fxs = FlexSEA() #singleton
-        fxs.send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
-        self.last_sent_voltage = voltage
-        self.set_voltage(voltage_qaxis/(1e-3))
+        self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_cur * 1e-3
 
     def set_current_qaxis_amps(self, current_q):
-        if self._state != _ActPacManStates.CURRENT:
-            raise RuntimeException("Motor must be in current mode to accept a current command")
-        fxs.send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
+        if self._state != _ActPackManStates.CURRENT:
+            raise RuntimeError("Motor must be in current mode to accept a current command")
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
 
 
     # motor-side variables
 
     def get_motor_angle_radians(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
-        return self.act_pack.mot_ang*RAD_PER_CLICK
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return int(self.act_pack.mot_ang)*RAD_PER_CLICK
 
     def get_motor_velocity_radians_per_second(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_vel*RAD_PER_DEG # expects deg/sec
 
     def get_motor_acceleration_radians_per_second_squared(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_acc # expects rad/s/s
 
     def get_motor_torque_newton_meters(self):
         return self.get_current_qaxis_amps()*NM_PER_AMP
 
     def set_motor_angle_radians(self, pos):
-        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
-            raise RuntimeException(
+        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
+            raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        fxs.send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
 
     def set_motor_velocity_radians_per_second(self, motor_velocity):
         raise NotImplemented() # potentially a way to specify position, impedance, or voltage commands.
@@ -315,18 +327,19 @@ class ActPacMan(object):
     # other
     def get_temp_celsius(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.temp*1.0 # expects Celsius
 
     def get_gyro_vector_radians_per_second(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[1.0*self.act_pack.gyro_x, self.act_pack.gyro_y, self.act_pack.gyro_z]]).T*RAD_PER_SEC_PER_GYRO_LSB# 1.0/32.8 * np.pi/180
 
     def get_accelerometer_vector_gravity(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
+
 
     ## Greek letter math symbol property interface. This is the good
     #  interface, for those who like code that resembles math. It works best
@@ -365,86 +378,13 @@ class ActPacMan(object):
     ## Weird-unit getters and setters
 
     def set_motor_angle_clicks(self, pos):
-        if self._state not in [_ActPacManStates.POSITION, _ActPacManStates.IMPEDANCE]:
-            raise RuntimeException(
+        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
+            raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        fxs.send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
 
     def get_motor_angle_clicks(self):
         if (self.act_pack is None):
-            raise RuntimeException("ActPacMan not updated before state is queried.")
+            raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_ang
 
-
-
-def current_control_demo():
-    hold_current=[1000]
-    time=6
-    time_step=0.1
-
-    with ActPacMan('/dev/ttyACM0') as dev:
-        # dev.__enter__()
-            # dev_id = fxs.open(port, baud_rate, log_level=6)
-            # fxs.start_streaming(dev_id, 100, log_en=False)
-            # app_type = fxs.get_app_type(dev_id)
-
-
-        print("Setting controller to current...")
-        dev.set_current_gains(kp=40, ki=400, ff=128)
-        assert(dev._state == _ActPacManStates.CURRENT)
-            # # Gains are, in order: kp, ki, kd, K, B & ff
-            # # dev.set_gains(kp=40, ki=400, ff=128)
-            # fxs.set_gains(dev_id, 40, 400, 0, 0, 0, 128)
-
-        sleep(0.5) # can we delete this?
-
-        prev_current = hold_current[0]
-        num_time_steps = int(time / time_step)
-
-        for current in hold_current:
-            for i in range(num_time_steps):
-                des_current = int(
-                    (current - prev_current) * (i / float(num_time_steps)) + prev_current
-                )
-
-                try:
-                    dev.ϕ = 0.0
-                except RuntimeException as e:
-                    pass
-                else:
-                    raise AssertionError()
-                dev.update()
-
-                dev.i = (des_current/1000.) # q-axis current in Amps
-                # fxs.send_motor_command(dev_id, fxe.FX_CURRENT, des_current)
-                sleep(time_step)
-                fxu.clear_terminal()
-                print("Desired (A):         ", 1000*des_current)
-                print("Measured (A):        ", dev.i)
-                print("Difference (A):      ", (dev.i - 1000*des_current), "\n")
-
-                # dev.dephy_print_device()
-                fxu.print_device(dev.act_pack, app_type)
-            prev_current = current
-
-        print("Turning off current control...")
-        # Ramp down first
-        ramp_down_steps = 50
-        for step in range(ramp_down_steps):
-            des_current = prev_current * (ramp_down_steps - step) / ramp_down_steps
-            dev.i=(des_current/1000.) # current in Amps
-            dev.update()
-            fxu.clear_terminal()
-            print("Desired (A):         ", 1000*des_current)
-            print("Measured (A):        ", dev.get_current_qaxis_amps())
-            print("Difference (A):      ", (dev.get_current_qaxis_amps() - 1000*des_current), "\n")
-            # dev.dephy_print_device()
-            fxu.print_device(dev.act_pack, dev.app_type)
-            sleep(time_step)
-    
-
-if __name__ == '__main__':
-    from time import sleep
-    from SoftRealtimeLoop import SoftRealtimeLoop # helps with the shutdown process
-    current_control_demo()
-    print("done with current_control_demo()")
