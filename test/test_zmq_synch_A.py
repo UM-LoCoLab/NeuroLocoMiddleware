@@ -8,4 +8,4 @@ synch = ZmqBinarySynchA(
     connectport="tcp://localhost:5558")
 
 for t in SoftRealtimeLoop(0.001, report=True):
-    print(synch.update(np.array([0.888, t*1337, 42])))
+    print(synch.update(np.array([42.1, t*1000])))

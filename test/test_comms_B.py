@@ -30,28 +30,32 @@ print("B7")
 
 my_count = 0
 
-for t in SoftRealtimeLoop(0.001, report=True):
+last_zero = 0.0
+duration=-42
+
+for t in SoftRealtimeLoop(0.0033, report=True):
     print("B8", t)
     # socks = dict(poller.poll(0))
 
     # print("B9", socks)
     # if socketA in socks and socks[socketB] == zmq.POLLIN:
-    try: 
-        print("B10")
-        message = socketA.recv(zmq.NOBLOCK)
-        print("B11")
-        print("Received:", message)
-        if int(message[1:4])==my_count:
-            my_count+=1
-            if my_count>=1000:
-                my_count=0
-    except KeyboardInterrupt:
-        socketA.close()
-        break
-    except zmq.error.Again:
-        pass
+    while True:
+        try: 
+            print("B10")
+            message = socketA.recv(zmq.NOBLOCK)
+            print("B11")
+            print("Received:", message)
+            if int(message[1:4])==my_count:
+                my_count+=1
+                if my_count>=1000:
+                    my_count=0
+                    duration=t-last_zero
+                    last_zero=t
+        except zmq.error.Again:
+            break
     print("B12", my_count)
 
     vecB = np.array([[0.34,0.222, 0.5]])
     socketB.send(b"B%03d%s"%(my_count, vecB.tobytes()))
     print("B13", b"B%03d%s"%(my_count, vecB.tobytes()))
+    print("B14", duration)

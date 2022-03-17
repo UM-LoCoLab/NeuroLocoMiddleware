@@ -22,16 +22,18 @@ class ZmqBinarySynchB:
 
 
     def update(self, data_in):
-        try: 
-            message = self.socketA.recv(zmq.NOBLOCK)
-        
-            if int(message[1:4])==self.my_count:
-                self.my_count+=1
-                if self.my_count>=1000:
-                    self.my_count=0
-            self.data_out = np.frombuffer(message[4:])
-        except zmq.error.Again:
-            pass
+        """ read all messages, then send data."""
+        while True:
+            try: 
+                message = self.socketA.recv(zmq.NOBLOCK)
+            
+                if int(message[1:4])==self.my_count:
+                    self.my_count+=1
+                    if self.my_count>=1000:
+                        self.my_count=0
+                self.data_out = np.frombuffer(message[4:])
+            except zmq.error.Again:
+                break
     
         self.socketB.send(b"B%03d%s"%(self.my_count, data_in.tobytes()))
         return self.data_out
@@ -50,12 +52,15 @@ class ZmqBinarySynchA:
         self.data_out = None
 
     def update(self, data_in):
-        try: 
-            message = self.socketB.recv(zmq.NOBLOCK)
-            self.my_count=int(message[1:4])
-            self.data_out = np.frombuffer(message[4:])
-            self.socketA.send(b"A%03d%s"%(self.my_count, data_in.tobytes()))
-        except zmq.error.Again:
-            pass
+        """ read all messages, then send data. """
+        while True:
+            try: 
+                message = self.socketB.recv(zmq.NOBLOCK)
+                self.my_count=int(message[1:4])
+                self.data_out = np.frombuffer(message[4:])
+            except zmq.error.Again:
+                break
+        self.socketA.send(b"A%03d%s"%(self.my_count, data_in.tobytes()))
+
         return self.data_out
     
