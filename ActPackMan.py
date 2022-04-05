@@ -95,6 +95,11 @@ class ActPackMan(object):
         self.act_pack = None # code for never having updated
     ## 'With'-block interface for ensuring a safe shutdown.
 
+        # Keep track of current control gains internally
+        self.Igains_kp = 0
+        self.Igains_ki = 0
+        self.Igains_ff = 0
+
     def __enter__(self):
         """ Runs when the object is used in a 'with' block. Initializes the comms."""
         if self.csv_file_name is not None:
@@ -206,6 +211,18 @@ class ActPackMan(object):
         # self.set_current_qaxis_amps(0.0)
         time.sleep(0.05)
 
+        # Store the new current gains for later use
+        self.Igains_kp = kp
+        self.Igains_ki = ki
+        self.Igains_ff = ff
+
+    def get_current_gains(self):
+        """
+        Returns the current gains last set in the actuator as tuple:
+        (kp, ki, ff)
+        """
+        return (self.Igains_kp, self.Igains_ki, self.Igains_ff)
+
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
         # Use this for integer gains suggested by the dephy website
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
@@ -216,6 +233,11 @@ class ActPackMan(object):
         self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.IMPEDANCE
         FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+        time.sleep(0.05) # This somehow makes sure this command gets sent fully
+        # Store these for later use
+        self.Igains_kp = kp
+        self.Igains_ki = ki
+        self.Igains_ff = ff
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
     def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
@@ -228,6 +250,23 @@ class ActPackMan(object):
         # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
         self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit, B=B*Nm_s_per_rad_to_Bunit, ff=ff)
 
+    def set_output_impedance_gains_real_unit_kb(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
+        """
+        Set the impedance gains in joint output units. 
+        """
+        self.set_impedance_gains_real_unit_KB(kp, ki, K/self.gear_ratio, B/self.gear_ratio, ff)
+
+    def isInImpedanceMode(self):
+        """
+        Boolean return of if the actuator is in impedance control mode
+        """
+        return self._state == _ActPackManStates.IMPEDANCE
+
+    def isInPositionmode(self):
+        """
+        Boolean return of if the actuator is in position control mode
+        """
+        return self._state == _ActPackManStates.POSITION
 
     ## Primary getters and setters
 
@@ -250,7 +289,7 @@ class ActPackMan(object):
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
         self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_VOLTAGE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
@@ -284,10 +323,19 @@ class ActPackMan(object):
         return self.get_current_qaxis_amps()*NM_PER_AMP
 
     def set_motor_angle_radians(self, pos):
-        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
+        """
+        Sets either the motor position setpoint or the motor equilibrium angle setpoint
+        depending on if in position or impedance mode. 
+        Angle is specified in motor radians
+        """
+        if self._state == _ActPackManStates.POSITION:
+            fxMode = fxe.FX_POSITION
+        elif self._state == _ActPackManStates.IMPEDANCE:
+            fxMode = fxe.FX_IMPEDANCE
+        else:   
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
+        FlexSEA().send_motor_command(self.dev_id, fxMode, int(pos/RAD_PER_CLICK))
 
     def set_motor_velocity_radians_per_second(self, motor_velocity):
         raise NotImplemented() # potentially a way to specify position, impedance, or voltage commands.
@@ -340,7 +388,19 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
 
+    def readGenvars(self):
+        """
+        Reads the genvars struct and returns an NP array of the first 6 entries.
+        This commonly contains the load cell information on the OSL. 
+        """
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        rawGenvars = np.array([self.act_pack.genvar_0, self.act_pack.genvar_1,
+                        self.act_pack.genvar_2, self.act_pack.genvar_3, 
+                        self.act_pack.genvar_4, self.act_pack.genvar_5]) 
+        return rawGenvars
 
+    
     ## Greek letter math symbol property interface. This is the good
     #  interface, for those who like code that resembles math. It works best
     #  to use the UnicodeMath plugin for sublime-text, "Fast Unicode Math
