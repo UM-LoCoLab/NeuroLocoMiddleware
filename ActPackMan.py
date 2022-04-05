@@ -254,7 +254,7 @@ class ActPackMan(object):
         """
         Set the impedance gains in joint output units. 
         """
-        self.set_impedance_gains_real_unit_KB(kp, ki, K/self.gear_ratio, B/self.gear_ratio, ff)
+        self.set_impedance_gains_real_unit_KB(kp, ki, K/(self.gear_ratio**2), B/(self.gear_ratio**2), ff)
 
     def isInImpedanceMode(self):
         """
