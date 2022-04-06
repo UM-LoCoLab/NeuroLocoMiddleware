@@ -196,8 +196,9 @@ class ActPackMan(object):
         assert(isfinite(kp) and 0 <= kp and kp <= 1000)
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
-        self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.POSITION
+        if self._state != _ActPackManStates.POSITION:
+            self.set_voltage_qaxis_volts(0.0)
+            self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
@@ -205,11 +206,15 @@ class ActPackMan(object):
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
-        # self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.CURRENT
-        FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
-        # self.set_current_qaxis_amps(0.0)
-        time.sleep(0.05)
+        # If this is a new entry into current control, reset values to prevent nonsense
+        if self._state != _ActPackManStates.CURRENT:
+            self.set_voltage_qaxis_volts(0.0)
+            self._state=_ActPackManStates.CURRENT
+            FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+            self.set_current_qaxis_amps(0.0)
+        else:
+            FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+        
 
         # Store the new current gains for later use
         self.Igains_kp = kp
@@ -230,15 +235,28 @@ class ActPackMan(object):
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
         assert(isfinite(K) and 0 <= K)
         assert(isfinite(B) and 0 <= B)
-        self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.IMPEDANCE
-        FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
-        time.sleep(0.05) # This somehow makes sure this command gets sent fully
-        # Store these for later use
+        # If this is a new entry into impedance control, reset values to prevent nonsense
+        if self._state != _ActPackManStates.IMPEDANCE:
+            # Quickly set voltage to 0 as we change modes
+            self.set_voltage_qaxis_volts(0.0)
+
+            # Write new gains
+            FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+            
+            # Update internal mode flag
+            self._state=_ActPackManStates.IMPEDANCE
+
+            # Update equilibrium angle to current position.
+            # This command also changes the actpack mode to impedance
+            self.set_motor_angle_radians(self.get_motor_angle_radians())
+        else:
+            # If we were already in impedance mode, just change the gains and move on with life
+            FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+
+        # Store the current control gains for later use
         self.Igains_kp = kp
         self.Igains_ki = ki
         self.Igains_ff = ff
-        self.set_motor_angle_radians(self.get_motor_angle_radians())
 
     def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
         # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
