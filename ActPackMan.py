@@ -372,6 +372,11 @@ class ActPackMan(object):
     def get_output_velocity_radians_per_second(self):
         return self.get_motor_velocity_radians_per_second()/self.gear_ratio
 
+    def get_joint_encoder_counts(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.ank_ang
+
     def get_output_acceleration_radians_per_second_squared(self):
         return self.get_motor_acceleration_radians_per_second_squared()/self.gear_ratio
 
@@ -448,6 +453,7 @@ class ActPackMan(object):
         doc="output_acceleration_radians_per_second_squared")
     τ = property(get_output_torque_newton_meters, set_output_torque_newton_meters,
         doc="output_torque_newton_meters")
+    jointEncoderCounts = property(get_joint_encoder_counts)
 
     # other
     α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
