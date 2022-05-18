@@ -433,6 +433,8 @@ class ActPackMan(object):
     # electrical variables
     v = property(get_voltage_qaxis_volts, set_voltage_qaxis_volts, doc="voltage_qaxis_volts")
     i = property(get_current_qaxis_amps, set_current_qaxis_amps, doc="current_qaxis_amps")
+    vBatt = property(get_battery_voltage_volts, doc="Battery voltage")
+    iBatt = property(get_battery_current_amps, doc="Battery current")
 
     # motor-side variables
     ϕ = property(get_motor_angle_radians, set_motor_angle_radians, doc="motor_angle_radians")
