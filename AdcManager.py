@@ -2,8 +2,11 @@ import busio
 import board
 import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
+import csv
+import traceback
+import time
 
-class ADC_Manager(object):
+class AdcManager(object):
     def __init__(self, csv_file_name=None):
         self.i2c = busio.I2C(board.SCL, board.SDA)
         self.ads = ADS.ADS1115(self.i2c, data_rate=860)
@@ -19,8 +22,8 @@ class ADC_Manager(object):
             with open(self.csv_file_name,'w') as fd:
                 writer = csv.writer(fd)
                 writer.writerow(["pi_time", "voltage", "test_duration"])
-        self.csv_file = open(self.csv_file_name,'a').__enter__()
-        self.csv_writer = csv.writer(self.csv_file)
+            self.csv_file = open(self.csv_file_name,'a').__enter__()
+            self.csv_writer = csv.writer(self.csv_file)
         return self
 
     def __exit__(self, etype, value, tb):
