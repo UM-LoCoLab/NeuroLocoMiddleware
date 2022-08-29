@@ -85,6 +85,9 @@ class SoftRealtimeLoop(object):
 
   def __del__(self):
     if self.report:
+      if self.n<2:
+        print("Num cycles: %d<2"%self.n)
+        return
       print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
