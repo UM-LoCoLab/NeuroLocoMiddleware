@@ -51,7 +51,7 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
 RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
 G_PER_ACCELEROMETER_LSB = 1./8192
-NM_PER_AMP = 0.146
+NM_PER_AMP = 0.1129 # NM_PER_AMP = 0.146
 RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
 RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
@@ -183,6 +183,10 @@ class ActPackMan(object):
 
         if self.hdf5_file_name is not None:
             raise NotImplemented()
+
+        # Check for thermal fault, bit 2 of the execute status byte per dephy's great logic
+        if self.act_pack.status_ex & 0b00000010 == 0b00000010:
+            raise RuntimeError("Actpack Thermal Limit Tripped")
 
     ## Gain Setting and Control Mode Switching (using hidden member self._state)
     """
@@ -423,12 +427,38 @@ class ActPackMan(object):
                         self.act_pack.genvar_4, self.act_pack.genvar_5]) 
         return rawGenvars
 
+    def get_state_time(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.state_time
+
+    def get_status_Re(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_re
+
+    def get_status_Mn(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_mn
+    
+    def get_status_Ex(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_ex
+
+    status_re = property(get_status_Re)
+    status_mn = property(get_status_Mn)
+    status_ex = property(get_status_Ex)
     
     ## Greek letter math symbol property interface. This is the good
     #  interface, for those who like code that resembles math. It works best
     #  to use the UnicodeMath plugin for sublime-text, "Fast Unicode Math
     #  Characters" in VS Code, or the like to allow easy typing of ϕ, θ, and
     #  τ.
+
+    # general variables
+    state_time = property(get_state_time)
 
     # electrical variables
     v = property(get_voltage_qaxis_volts, set_voltage_qaxis_volts, doc="voltage_qaxis_volts")
