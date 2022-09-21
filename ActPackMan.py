@@ -374,7 +374,7 @@ class ActPackMan(object):
     def get_temp_celsius(self):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
-        return self.act_pack.temp*1.0 # expects Celsius
+        return self.act_pack.temperature*1.0 # expects Celsius
 
     def get_gyro_vector_radians_per_second(self):
         if (self.act_pack is None):
