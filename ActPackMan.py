@@ -55,7 +55,8 @@ class ActPackMan(object):
     
     def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None,
         hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0,
-        printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
+        printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6, 
+        enableThermalTorqueThrottling = True):
         """ Intializes variables, but does not open the stream. """
 
         #init printer settings
@@ -63,6 +64,7 @@ class ActPackMan(object):
         self.shouldLog = shouldLog
         self.logLevel = logLevel
         self.prevReadTime = time.time()-1/self.updateFreq
+        self.dt = 1.0/updateFreq
         self.gear_ratio = gear_ratio
 
         # self.varsToStream = varsToStream
@@ -84,6 +86,12 @@ class ActPackMan(object):
         self.Igains_ki = 0
         self.Igains_ff = 0
 
+        # Instantiate Thermal Model
+        self.thermal_model = ThermalMotorModel(temp_limit_windings=80, soft_border_C_windings=10, temp_limit_case=70, soft_border_C_case=10)
+        self.torqueThermalScaling = 0
+        self.enableThermalTorqueThrottling = enableThermalTorqueThrottling
+
+    ## 'With'-block interface for ensuring a safe shutdown.
     def __enter__(self):
         """ Runs when the object is used in a 'with' block. Initializes the comms."""
         if self.csv_file_name is not None:
@@ -143,10 +151,15 @@ class ActPackMan(object):
         if not self.entered:
             raise RuntimeError("ActPackMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
-        if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
+        self.dt =  currentTime-self.prevReadTime
+        if abs(self.dt)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
         self.act_pack = self.device.read() # a c-types struct
         self.prevReadTime = currentTime
+
+        # Update thermal model
+        self.thermal_model.T_c = self.σ
+        self.torqueThermalScaling = self.thermal_model.update_and_get_scale(self.dt, self.i, FOS=1.5)
 
         # Automatically save all the data as a csv file
         if self.csv_file_name is not None:
@@ -376,6 +389,11 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.temperature*1.0 # expects Celsius
 
+    def get_winding_temperature(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.thermal_model.T_w
+
     def get_gyro_vector_radians_per_second(self):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
@@ -462,6 +480,7 @@ class ActPackMan(object):
     α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
     ω = property(get_gyro_vector_radians_per_second, doc="gyro vector, rad/s")
     σ = property(get_temp_celsius, doc='housing temp, celsius')
+    T_w = property(get_winding_temperature, doc="motor modeled winidng temp, c")
 
     ## Weird-unit getters and setters
 
@@ -476,3 +495,73 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_ang
 
+
+
+#### TESTING OUT THERMAL MODEL FROM MBLUE TEAM #####
+class ThermalMotorModel():
+    def __init__(self, ambient=21, params = dict(), temp_limit_windings=115, soft_border_C_windings=15, temp_limit_case=80, soft_border_C_case=5):
+        # The following parameters result from Jack Schuchmann's test with no fans
+        self.C_w =  0.20*81.46202695970649
+        self.R_WC =  1.0702867186480716
+        self.C_c =  512.249065845453
+        self.R_CA =  1.9406620046327363
+        self.α = 0.393*1/100 #Pure copper. Taken from thermalmodel3.py
+        self.R_T_0 = 65# temp at which resistance was measured
+        self.R_ϕ_0 = .376 # emirical, from the computed resistance (q-axis voltage/ q-axis current). Ohms
+        
+        self.__dict__.update(params)
+        self.T_w = ambient
+        self.T_c = ambient
+        self.T_a = ambient
+        self.soft_max_temp_windings = temp_limit_windings-soft_border_C_windings
+        self.abs_max_temp_windings = temp_limit_windings
+        self.soft_border_windings = soft_border_C_windings
+
+
+        self.soft_max_temp_case = temp_limit_case-soft_border_C_case
+        self.abs_max_temp_case = temp_limit_case
+        self.soft_border_case = soft_border_C_case
+
+    def update_only(self, dt, I_q_des):
+        ## Dynamics:
+        # self.C_w * d self.T_w /dt = I2R + (self.T_c-self.T_w)/self.R_WC
+        # self.C_c * d self.T_c /dt = (self.T_w-self.T_c)/self.R_WC + (self.T_w-self.T_a)/self.R_CA
+
+        I2R = I_q_des**2*self.R_ϕ_0*(1+self.α*(self.T_w-self.R_T_0)) # accounts for resistance change due to temp.
+
+        dTw_dt = (I2R + (self.T_c-self.T_w)/self.R_WC)/self.C_w
+        dTc_dt = ((self.T_w-self.T_c)/self.R_WC + (self.T_a-self.T_c)/self.R_CA)/self.C_c
+        self.T_w += dt*dTw_dt
+        self.T_c += dt*dTc_dt
+
+
+    def update_and_get_scale(self, dt, I_q_des, FOS=3.):
+        ## Dynamics:
+        # self.C_w * d self.T_w /dt = I2R + (self.T_c-self.T_w)/self.R_WC
+        # self.C_c * d self.T_c /dt = (self.T_w-self.T_c)/self.R_WC + (self.T_w-self.T_a)/self.R_CA
+
+        I2R_des = FOS*I_q_des**2*self.R_ϕ_0*(1+self.α*(self.T_w-self.R_T_0)) # accounts for resistance change due to temp.
+        scale=1.0
+        if self.T_w > self.abs_max_temp_windings:
+            scale = 0.0
+        elif self.T_w > self.soft_max_temp_windings:
+            scale *= (self.abs_max_temp_windings - self.T_w)/(self.abs_max_temp_windings - self.soft_max_temp_windings)
+
+
+        if self.T_c > self.abs_max_temp_case:
+            scale = 0.0
+        elif self.T_c > self.soft_max_temp_case:
+            scale *= (self.abs_max_temp_case - self.T_w)/(self.abs_max_temp_case - self.soft_max_temp_case)
+
+        I2R = I2R_des*scale
+
+        dTw_dt = (I2R + (self.T_c-self.T_w)/self.R_WC)/self.C_w
+        dTc_dt = ((self.T_w-self.T_c)/self.R_WC + (self.T_a-self.T_c)/self.R_CA)/self.C_c
+        self.T_w += dt*dTw_dt
+        self.T_c += dt*dTc_dt
+
+        if scale<=0.0:
+            return 0.0
+        if scale>=1.0:
+            return 1.0
+        return np.sqrt(scale) # this is how much the torque should be scaled
