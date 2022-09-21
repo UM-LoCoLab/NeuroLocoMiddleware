@@ -14,23 +14,10 @@ from os.path import realpath
 # Dephy library import
 from flexsea import fxUtils as fxu  # pylint: disable=no-name-in-module
 from flexsea import fxEnums as fxe  # pylint: disable=no-name-in-module
-from flexsea import flexsea as flex
+from flexsea.device import Device
 
 # Version of the ActPackMan library
-__version__="1.0.0"
-
-class FlexSEA(flex.FlexSEA):
-    """ A singleton class that prevents re-initialization of FlexSEA """
-    _instance = None
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            print("making a new one")
-            cls._instance = flex.FlexSEA()
-        return cls._instance
-
-    def __init__(self):
-        pass
-
+__version__="1.1.0"
 
 # See ActPackState for all available data
 labels = [ # matches varsToStream
@@ -46,8 +33,6 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
     "batt_volt", "batt_curr"
 ]
 
-
-
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
 RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
 G_PER_ACCELEROMETER_LSB = 1./8192
@@ -62,7 +47,6 @@ class _ActPackManStates(Enum):
     CURRENT = 2
     POSITION = 3
     IMPEDANCE = 4
-
 
 class ActPackMan(object):
     """ (Dephy) Actuator Pack Manager
@@ -93,7 +77,7 @@ class ActPackMan(object):
         self.entered = False
         self._state = None
         self.act_pack = None # code for never having updated
-    ## 'With'-block interface for ensuring a safe shutdown.
+        self.device = None
 
         # Keep track of current control gains internally
         self.Igains_kp = 0
@@ -112,17 +96,10 @@ class ActPackMan(object):
         if self.hdf5_file_name is not None:
             self.hdf5_file = h5py.File(self.hdf5_file_name, 'w')
 
-
-        fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
-        # dev_id = fxs.open(port, baud_rate, log_level=6)
-        self.dev_id = fxs.open(self.devttyACMport, self.baudRate, log_level=self.logLevel)
-        
-        # fxs.start_streaming(dev_id, 100, log_en=False)
-        # Start stream
-        # fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
-        fxs.start_streaming(self.dev_id, self.updateFreq, log_en=self.shouldLog)
+        self.device = Device(self.devttyACMport, self.baudRate)
+        self.device.open(self.updateFreq, log_level=self.logLevel)
         print('devID %d streaming from %s (i.e. %s)'%(
-            self.dev_id, self.devttyACMport, self.named_port))
+            self.device.dev_id, self.devttyACMport, self.named_port))
             
         time.sleep(0.1)
 
@@ -137,24 +114,18 @@ class ActPackMan(object):
     def __exit__(self, etype, value, tb):
         """ Runs when leaving scope of the 'with' block. Properly terminates comms and file access."""
 
-        if not (self.dev_id is None):
+        if not (self.device is None):
             print('Turning off control for device %s (i.e. %s)'%(self.devttyACMport, self.named_port))
             t0=time.time()
-            fxs = FlexSEA() # singleton
-            # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
             self.v = 0.0
-            # fxs.stop_streaming(self.dev_id) # experimental
-            # sleep(0.1) # Works
             self.update()
             time.sleep(1.0/self.updateFreq) # Works
             while(abs(self.i)>0.1):
                 self.update()
                 self.v = 0.0
                 time.sleep(1.0/self.updateFreq)
-                # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
-            # sleep(0.0) # doesn't work in that it results in the following ridiculous warning:
-                # "Detected stream from a previous session, please power cycle the device before continuing"
-            fxs.close(self.dev_id)
+
+            self.device.close()
             time.sleep(1.0/self.updateFreq)
             print('done.', time.time()-t0)
         
@@ -174,7 +145,7 @@ class ActPackMan(object):
         currentTime = time.time()
         if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
-        self.act_pack = FlexSEA().read_device(self.dev_id) # a c-types struct
+        self.act_pack = self.device.read() # a c-types struct
         self.prevReadTime = currentTime
 
         # Automatically save all the data as a csv file
@@ -203,7 +174,7 @@ class ActPackMan(object):
         if self._state != _ActPackManStates.POSITION:
             self.set_voltage_qaxis_volts(0.0)
             self._state=_ActPackManStates.POSITION
-        FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
+        self.device.set_gains(kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
     def set_current_gains(self, kp=40, ki=400, ff=128):
@@ -214,10 +185,10 @@ class ActPackMan(object):
         if self._state != _ActPackManStates.CURRENT:
             self.set_voltage_qaxis_volts(0.0)
             self._state=_ActPackManStates.CURRENT
-            FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+            self.device.set_gains(kp, ki, 0, 0, 0, ff)
             self.set_current_qaxis_amps(0.0)
         else:
-            FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
+            self.device.set_gains(kp, ki, 0, 0, 0, ff)
         
 
         # Store the new current gains for later use
@@ -245,7 +216,7 @@ class ActPackMan(object):
             self.set_voltage_qaxis_volts(0.0)
 
             # Write new gains
-            FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+            self.device.set_gains(int(kp), int(ki), 0, int(K), int(B), int(ff))
             
             # Update internal mode flag
             self._state=_ActPackManStates.IMPEDANCE
@@ -255,7 +226,7 @@ class ActPackMan(object):
             self.set_motor_angle_radians(self.get_motor_angle_radians())
         else:
             # If we were already in impedance mode, just change the gains and move on with life
-            FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
+            self.device.set_gains(int(kp), int(ki), 0, int(K), int(B), int(ff))
 
         # Store the current control gains for later use
         self.Igains_kp = kp
@@ -311,7 +282,7 @@ class ActPackMan(object):
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
         self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_VOLTAGE, int(voltage_qaxis*1000))
+        self.device.send_motor_command(fxe.FX_VOLTAGE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
@@ -321,7 +292,7 @@ class ActPackMan(object):
     def set_current_qaxis_amps(self, current_q):
         if self._state != _ActPackManStates.CURRENT:
             raise RuntimeError("Motor must be in current mode to accept a current command")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
+        self.device.send_motor_command(fxe.FX_CURRENT, int(current_q*1000.0))
 
 
     # motor-side variables
@@ -357,7 +328,7 @@ class ActPackMan(object):
         else:   
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        FlexSEA().send_motor_command(self.dev_id, fxMode, int(pos/RAD_PER_CLICK))
+        self.device.send_motor_command(fxMode, int(pos/RAD_PER_CLICK))
 
     def set_motor_velocity_radians_per_second(self, motor_velocity):
         raise NotImplemented() # potentially a way to specify position, impedance, or voltage commands.
@@ -497,7 +468,7 @@ class ActPackMan(object):
         if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
+        self.device.send_motor_command(fxe.FX_POSITION, int(pos))
 
     def get_motor_angle_clicks(self):
         if (self.act_pack is None):
