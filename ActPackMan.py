@@ -461,6 +461,7 @@ class ActPackMan(object):
     # other
     α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
     ω = property(get_gyro_vector_radians_per_second, doc="gyro vector, rad/s")
+    σ = property(get_temp_celsius, doc='housing temp, celsius')
 
     ## Weird-unit getters and setters
 
