@@ -21,7 +21,7 @@ from math import sqrt
 PRECISION_OF_SLEEP = 0.0001
 
 # Version of the SoftRealtimeLoop library
-__version__="1.0.0"
+__version__="1.0.1"
 
 class LoopKiller:
   def __init__(self, fade_time=0.0):
