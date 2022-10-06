@@ -105,7 +105,7 @@ class ActPackMan(object):
             self.hdf5_file = h5py.File(self.hdf5_file_name, 'w')
 
         self.device = Device(self.devttyACMport, self.baudRate)
-        self.device.open(self.updateFreq, log_level=self.logLevel)
+        self.device.open(self.updateFreq, log_level=self.logLevel, log_enabled=False)
         print('devID %d streaming from %s (i.e. %s)'%(
             self.device.dev_id, self.devttyACMport, self.named_port))
             
