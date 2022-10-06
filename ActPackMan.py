@@ -14,23 +14,10 @@ from os.path import realpath
 # Dephy library import
 from flexsea import fxUtils as fxu  # pylint: disable=no-name-in-module
 from flexsea import fxEnums as fxe  # pylint: disable=no-name-in-module
-from flexsea import flexsea as flex
+from flexsea.device import Device
 
 # Version of the ActPackMan library
-__version__="1.0.0"
-
-class FlexSEA(flex.FlexSEA):
-    """ A singleton class that prevents re-initialization of FlexSEA """
-    _instance = None
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
-            print("making a new one")
-            cls._instance = flex.FlexSEA()
-        return cls._instance
-
-    def __init__(self):
-        pass
-
+__version__="1.1.0"
 
 # See ActPackState for all available data
 labels = [ # matches varsToStream
@@ -46,12 +33,10 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
     "batt_volt", "batt_curr"
 ]
 
-
-
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
 RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
 G_PER_ACCELEROMETER_LSB = 1./8192
-NM_PER_AMP = 0.146
+NM_PER_AMP = 0.1129 # NM_PER_AMP = 0.146
 RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
 RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
@@ -63,7 +48,6 @@ class _ActPackManStates(Enum):
     POSITION = 3
     IMPEDANCE = 4
 
-
 class ActPackMan(object):
     """ (Dephy) Actuator Pack Manager
     Keeps track of a single Dephy Actuator
@@ -71,7 +55,8 @@ class ActPackMan(object):
     
     def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None,
         hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0,
-        printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
+        printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6, 
+        enableThermalTorqueThrottling = True):
         """ Intializes variables, but does not open the stream. """
 
         #init printer settings
@@ -79,6 +64,7 @@ class ActPackMan(object):
         self.shouldLog = shouldLog
         self.logLevel = logLevel
         self.prevReadTime = time.time()-1/self.updateFreq
+        self.dt = 1.0/updateFreq
         self.gear_ratio = gear_ratio
 
         # self.varsToStream = varsToStream
@@ -93,8 +79,19 @@ class ActPackMan(object):
         self.entered = False
         self._state = None
         self.act_pack = None # code for never having updated
-    ## 'With'-block interface for ensuring a safe shutdown.
+        self.device = None
 
+        # Keep track of current control gains internally
+        self.Igains_kp = 0
+        self.Igains_ki = 0
+        self.Igains_ff = 0
+
+        # Instantiate Thermal Model
+        self.thermal_model = ThermalMotorModel(temp_limit_windings=80, soft_border_C_windings=10, temp_limit_case=70, soft_border_C_case=10)
+        self.torqueThermalScaling = 0
+        self.enableThermalTorqueThrottling = enableThermalTorqueThrottling
+
+    ## 'With'-block interface for ensuring a safe shutdown.
     def __enter__(self):
         """ Runs when the object is used in a 'with' block. Initializes the comms."""
         if self.csv_file_name is not None:
@@ -107,17 +104,10 @@ class ActPackMan(object):
         if self.hdf5_file_name is not None:
             self.hdf5_file = h5py.File(self.hdf5_file_name, 'w')
 
-
-        fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
-        # dev_id = fxs.open(port, baud_rate, log_level=6)
-        self.dev_id = fxs.open(self.devttyACMport, self.baudRate, log_level=self.logLevel)
-        
-        # fxs.start_streaming(dev_id, 100, log_en=False)
-        # Start stream
-        # fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
-        fxs.start_streaming(self.dev_id, self.updateFreq, log_en=self.shouldLog)
+        self.device = Device(self.devttyACMport, self.baudRate)
+        self.device.open(self.updateFreq, log_level=self.logLevel)
         print('devID %d streaming from %s (i.e. %s)'%(
-            self.dev_id, self.devttyACMport, self.named_port))
+            self.device.dev_id, self.devttyACMport, self.named_port))
             
         time.sleep(0.1)
 
@@ -132,24 +122,18 @@ class ActPackMan(object):
     def __exit__(self, etype, value, tb):
         """ Runs when leaving scope of the 'with' block. Properly terminates comms and file access."""
 
-        if not (self.dev_id is None):
+        if not (self.device is None):
             print('Turning off control for device %s (i.e. %s)'%(self.devttyACMport, self.named_port))
             t0=time.time()
-            fxs = FlexSEA() # singleton
-            # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
             self.v = 0.0
-            # fxs.stop_streaming(self.dev_id) # experimental
-            # sleep(0.1) # Works
             self.update()
             time.sleep(1.0/self.updateFreq) # Works
             while(abs(self.i)>0.1):
                 self.update()
                 self.v = 0.0
                 time.sleep(1.0/self.updateFreq)
-                # fxs.send_motor_command(self.dev_id, fxe.FX_NONE, 0) # 0 mV
-            # sleep(0.0) # doesn't work in that it results in the following ridiculous warning:
-                # "Detected stream from a previous session, please power cycle the device before continuing"
-            fxs.close(self.dev_id)
+
+            self.device.close()
             time.sleep(1.0/self.updateFreq)
             print('done.', time.time()-t0)
         
@@ -167,10 +151,15 @@ class ActPackMan(object):
         if not self.entered:
             raise RuntimeError("ActPackMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
-        if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
+        self.dt =  currentTime-self.prevReadTime
+        if abs(self.dt)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
-        self.act_pack = FlexSEA().read_device(self.dev_id) # a c-types struct
+        self.act_pack = self.device.read() # a c-types struct
         self.prevReadTime = currentTime
+
+        # Update thermal model
+        self.thermal_model.T_c = self.σ
+        self.torqueThermalScaling = self.thermal_model.update_and_get_scale(self.dt, self.i, FOS=1.5)
 
         # Automatically save all the data as a csv file
         if self.csv_file_name is not None:
@@ -178,6 +167,10 @@ class ActPackMan(object):
 
         if self.hdf5_file_name is not None:
             raise NotImplemented()
+
+        # Check for thermal fault, bit 2 of the execute status byte per dephy's great logic
+        if self.act_pack.status_ex & 0b00000010 == 0b00000010:
+            raise RuntimeError("Actpack Thermal Limit Tripped")
 
     ## Gain Setting and Control Mode Switching (using hidden member self._state)
     """
@@ -191,20 +184,37 @@ class ActPackMan(object):
         assert(isfinite(kp) and 0 <= kp and kp <= 1000)
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
-        self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.POSITION
-        FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
+        if self._state != _ActPackManStates.POSITION:
+            self.set_voltage_qaxis_volts(0.0)
+            self._state=_ActPackManStates.POSITION
+        self.device.set_gains(kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
 
     def set_current_gains(self, kp=40, ki=400, ff=128):
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
-        # self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.CURRENT
-        FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
-        # self.set_current_qaxis_amps(0.0)
-        time.sleep(0.05)
+        # If this is a new entry into current control, reset values to prevent nonsense
+        if self._state != _ActPackManStates.CURRENT:
+            self.set_voltage_qaxis_volts(0.0)
+            self._state=_ActPackManStates.CURRENT
+            self.device.set_gains(kp, ki, 0, 0, 0, ff)
+            self.set_current_qaxis_amps(0.0)
+        else:
+            self.device.set_gains(kp, ki, 0, 0, 0, ff)
+        
+
+        # Store the new current gains for later use
+        self.Igains_kp = kp
+        self.Igains_ki = ki
+        self.Igains_ff = ff
+
+    def get_current_gains(self):
+        """
+        Returns the current gains last set in the actuator as tuple:
+        (kp, ki, ff)
+        """
+        return (self.Igains_kp, self.Igains_ki, self.Igains_ff)
 
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
         # Use this for integer gains suggested by the dephy website
@@ -213,10 +223,28 @@ class ActPackMan(object):
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
         assert(isfinite(K) and 0 <= K)
         assert(isfinite(B) and 0 <= B)
-        self.set_voltage_qaxis_volts(0.0)
-        self._state=_ActPackManStates.IMPEDANCE
-        FlexSEA().set_gains(self.dev_id, int(kp), int(ki), 0, int(K), int(B), int(ff))
-        self.set_motor_angle_radians(self.get_motor_angle_radians())
+        # If this is a new entry into impedance control, reset values to prevent nonsense
+        if self._state != _ActPackManStates.IMPEDANCE:
+            # Quickly set voltage to 0 as we change modes
+            self.set_voltage_qaxis_volts(0.0)
+
+            # Write new gains
+            self.device.set_gains(int(kp), int(ki), 0, int(K), int(B), int(ff))
+            
+            # Update internal mode flag
+            self._state=_ActPackManStates.IMPEDANCE
+
+            # Update equilibrium angle to current position.
+            # This command also changes the actpack mode to impedance
+            self.set_motor_angle_radians(self.get_motor_angle_radians())
+        else:
+            # If we were already in impedance mode, just change the gains and move on with life
+            self.device.set_gains(int(kp), int(ki), 0, int(K), int(B), int(ff))
+
+        # Store the current control gains for later use
+        self.Igains_kp = kp
+        self.Igains_ki = ki
+        self.Igains_ff = ff
 
     def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
         # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
@@ -228,6 +256,23 @@ class ActPackMan(object):
         # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
         self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit, B=B*Nm_s_per_rad_to_Bunit, ff=ff)
 
+    def set_output_impedance_gains_real_unit_kb(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
+        """
+        Set the impedance gains in joint output units. 
+        """
+        self.set_impedance_gains_real_unit_KB(kp, ki, K/(self.gear_ratio**2), B/(self.gear_ratio**2), ff)
+
+    def isInImpedanceMode(self):
+        """
+        Boolean return of if the actuator is in impedance control mode
+        """
+        return self._state == _ActPackManStates.IMPEDANCE
+
+    def isInPositionmode(self):
+        """
+        Boolean return of if the actuator is in position control mode
+        """
+        return self._state == _ActPackManStates.POSITION
 
     ## Primary getters and setters
 
@@ -250,7 +295,7 @@ class ActPackMan(object):
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
         self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
+        self.device.send_motor_command(fxe.FX_VOLTAGE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
@@ -260,7 +305,7 @@ class ActPackMan(object):
     def set_current_qaxis_amps(self, current_q):
         if self._state != _ActPackManStates.CURRENT:
             raise RuntimeError("Motor must be in current mode to accept a current command")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_CURRENT, int(current_q*1000.0))
+        self.device.send_motor_command(fxe.FX_CURRENT, int(current_q*1000.0))
 
 
     # motor-side variables
@@ -284,10 +329,19 @@ class ActPackMan(object):
         return self.get_current_qaxis_amps()*NM_PER_AMP
 
     def set_motor_angle_radians(self, pos):
-        if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
+        """
+        Sets either the motor position setpoint or the motor equilibrium angle setpoint
+        depending on if in position or impedance mode. 
+        Angle is specified in motor radians
+        """
+        if self._state == _ActPackManStates.POSITION:
+            fxMode = fxe.FX_POSITION
+        elif self._state == _ActPackManStates.IMPEDANCE:
+            fxMode = fxe.FX_IMPEDANCE
+        else:   
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos/RAD_PER_CLICK))
+        self.device.send_motor_command(fxMode, int(pos/RAD_PER_CLICK))
 
     def set_motor_velocity_radians_per_second(self, motor_velocity):
         raise NotImplemented() # potentially a way to specify position, impedance, or voltage commands.
@@ -305,6 +359,11 @@ class ActPackMan(object):
 
     def get_output_velocity_radians_per_second(self):
         return self.get_motor_velocity_radians_per_second()/self.gear_ratio
+
+    def get_joint_encoder_counts(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.ank_ang
 
     def get_output_acceleration_radians_per_second_squared(self):
         return self.get_motor_acceleration_radians_per_second_squared()/self.gear_ratio
@@ -328,7 +387,12 @@ class ActPackMan(object):
     def get_temp_celsius(self):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
-        return self.act_pack.temp*1.0 # expects Celsius
+        return self.act_pack.temperature*1.0 # expects Celsius
+
+    def get_winding_temperature(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.thermal_model.T_w
 
     def get_gyro_vector_radians_per_second(self):
         if (self.act_pack is None):
@@ -340,16 +404,56 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return np.array([[self.act_pack.acc_x, self.act_pack.acc_y, self.act_pack.acc_z]]).T*G_PER_ACCELEROMETER_LSB
 
+    def readGenvars(self):
+        """
+        Reads the genvars struct and returns an NP array of the first 6 entries.
+        This commonly contains the load cell information on the OSL. 
+        """
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        rawGenvars = np.array([self.act_pack.genvar_0, self.act_pack.genvar_1,
+                        self.act_pack.genvar_2, self.act_pack.genvar_3, 
+                        self.act_pack.genvar_4, self.act_pack.genvar_5]) 
+        return rawGenvars
 
+    def get_state_time(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.state_time
+
+    def get_status_Re(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_re
+
+    def get_status_Mn(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_mn
+    
+    def get_status_Ex(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.status_ex
+
+    status_re = property(get_status_Re)
+    status_mn = property(get_status_Mn)
+    status_ex = property(get_status_Ex)
+    
     ## Greek letter math symbol property interface. This is the good
     #  interface, for those who like code that resembles math. It works best
     #  to use the UnicodeMath plugin for sublime-text, "Fast Unicode Math
     #  Characters" in VS Code, or the like to allow easy typing of ϕ, θ, and
     #  τ.
 
+    # general variables
+    state_time = property(get_state_time)
+
     # electrical variables
     v = property(get_voltage_qaxis_volts, set_voltage_qaxis_volts, doc="voltage_qaxis_volts")
     i = property(get_current_qaxis_amps, set_current_qaxis_amps, doc="current_qaxis_amps")
+    vBatt = property(get_battery_voltage_volts, doc="Battery voltage")
+    iBatt = property(get_battery_current_amps, doc="Battery current")
 
     # motor-side variables
     ϕ = property(get_motor_angle_radians, set_motor_angle_radians, doc="motor_angle_radians")
@@ -370,10 +474,13 @@ class ActPackMan(object):
         doc="output_acceleration_radians_per_second_squared")
     τ = property(get_output_torque_newton_meters, set_output_torque_newton_meters,
         doc="output_torque_newton_meters")
+    jointEncoderCounts = property(get_joint_encoder_counts)
 
     # other
     α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
     ω = property(get_gyro_vector_radians_per_second, doc="gyro vector, rad/s")
+    σ = property(get_temp_celsius, doc='housing temp, celsius')
+    T_w = property(get_winding_temperature, doc="motor modeled winidng temp, c")
 
     ## Weird-unit getters and setters
 
@@ -381,10 +488,80 @@ class ActPackMan(object):
         if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
             raise RuntimeError(
                 "Motor must be in position or impedance mode to accept a position setpoint")
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_POSITION, int(pos))
+        self.device.send_motor_command(fxe.FX_POSITION, int(pos))
 
     def get_motor_angle_clicks(self):
         if (self.act_pack is None):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.mot_ang
 
+
+
+#### TESTING OUT THERMAL MODEL FROM MBLUE TEAM #####
+class ThermalMotorModel():
+    def __init__(self, ambient=21, params = dict(), temp_limit_windings=115, soft_border_C_windings=15, temp_limit_case=80, soft_border_C_case=5):
+        # The following parameters result from Jack Schuchmann's test with no fans
+        self.C_w =  0.20*81.46202695970649
+        self.R_WC =  1.0702867186480716
+        self.C_c =  512.249065845453
+        self.R_CA =  1.9406620046327363
+        self.α = 0.393*1/100 #Pure copper. Taken from thermalmodel3.py
+        self.R_T_0 = 65# temp at which resistance was measured
+        self.R_ϕ_0 = .376 # emirical, from the computed resistance (q-axis voltage/ q-axis current). Ohms
+        
+        self.__dict__.update(params)
+        self.T_w = ambient
+        self.T_c = ambient
+        self.T_a = ambient
+        self.soft_max_temp_windings = temp_limit_windings-soft_border_C_windings
+        self.abs_max_temp_windings = temp_limit_windings
+        self.soft_border_windings = soft_border_C_windings
+
+
+        self.soft_max_temp_case = temp_limit_case-soft_border_C_case
+        self.abs_max_temp_case = temp_limit_case
+        self.soft_border_case = soft_border_C_case
+
+    def update_only(self, dt, I_q_des):
+        ## Dynamics:
+        # self.C_w * d self.T_w /dt = I2R + (self.T_c-self.T_w)/self.R_WC
+        # self.C_c * d self.T_c /dt = (self.T_w-self.T_c)/self.R_WC + (self.T_w-self.T_a)/self.R_CA
+
+        I2R = I_q_des**2*self.R_ϕ_0*(1+self.α*(self.T_w-self.R_T_0)) # accounts for resistance change due to temp.
+
+        dTw_dt = (I2R + (self.T_c-self.T_w)/self.R_WC)/self.C_w
+        dTc_dt = ((self.T_w-self.T_c)/self.R_WC + (self.T_a-self.T_c)/self.R_CA)/self.C_c
+        self.T_w += dt*dTw_dt
+        self.T_c += dt*dTc_dt
+
+
+    def update_and_get_scale(self, dt, I_q_des, FOS=3.):
+        ## Dynamics:
+        # self.C_w * d self.T_w /dt = I2R + (self.T_c-self.T_w)/self.R_WC
+        # self.C_c * d self.T_c /dt = (self.T_w-self.T_c)/self.R_WC + (self.T_w-self.T_a)/self.R_CA
+
+        I2R_des = FOS*I_q_des**2*self.R_ϕ_0*(1+self.α*(self.T_w-self.R_T_0)) # accounts for resistance change due to temp.
+        scale=1.0
+        if self.T_w > self.abs_max_temp_windings:
+            scale = 0.0
+        elif self.T_w > self.soft_max_temp_windings:
+            scale *= (self.abs_max_temp_windings - self.T_w)/(self.abs_max_temp_windings - self.soft_max_temp_windings)
+
+
+        if self.T_c > self.abs_max_temp_case:
+            scale = 0.0
+        elif self.T_c > self.soft_max_temp_case:
+            scale *= (self.abs_max_temp_case - self.T_w)/(self.abs_max_temp_case - self.soft_max_temp_case)
+
+        I2R = I2R_des*scale
+
+        dTw_dt = (I2R + (self.T_c-self.T_w)/self.R_WC)/self.C_w
+        dTc_dt = ((self.T_w-self.T_c)/self.R_WC + (self.T_a-self.T_c)/self.R_CA)/self.C_c
+        self.T_w += dt*dTw_dt
+        self.T_c += dt*dTc_dt
+
+        if scale<=0.0:
+            return 0.0
+        if scale>=1.0:
+            return 1.0
+        return np.sqrt(scale) # this is how much the torque should be scaled

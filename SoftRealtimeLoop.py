@@ -21,7 +21,7 @@ from math import sqrt
 PRECISION_OF_SLEEP = 0.0001
 
 # Version of the SoftRealtimeLoop library
-__version__="1.0.0"
+__version__="1.0.1"
 
 class LoopKiller:
   def __init__(self, fade_time=0.0):
@@ -84,7 +84,7 @@ class SoftRealtimeLoop(object):
     self.report=report
 
   def __del__(self):
-    if self.report:
+    if self.report and self.n>=2:
       print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
