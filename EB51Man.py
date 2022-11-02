@@ -3,9 +3,13 @@
 from ActPackMan import ActPackMan
 from ActPackMan import FlexSEA
 from ActPackMan import DEFAULT_VARIABLES
+from ActPackMan import NM_PER_AMP
 import numpy as np
 import time
 import csv
+
+DORSI_TENSION_TORQUE = 0.05   # Apply small torque in dorsiflexion region to maintain belt tension
+TORQUE_MODE_SLACK_LIMIT = 1  # In motor radians
 
 class EB51Man(ActPackMan):
     def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None,
@@ -19,8 +23,14 @@ class EB51Man(ActPackMan):
 
         self.slack = slack
         self.whiplashProtect = whiplashProtect
-        
 
+        self.prevOutputAngle = np.pi/2
+        self.currOutputAngle = np.pi/2
+        self.prevOutputVel = 0
+        self.currOutputVel = 0
+        self.prevTime = time.time()
+        self.currTime = time.time()
+        
         with open("/home/pi/MBLUE/device_side/parameters/MBLUE_Ankle_params.csv", 'r') as params_file:
             params_reader = csv.reader(params_file)
             params = []
@@ -61,8 +71,16 @@ class EB51Man(ActPackMan):
         if abs(currentTime-self.prevReadTime)<0.25/self.updateFreq:
             print("warning: re-updating twice in less than a quarter of a time-step")
         self.act_pack = FlexSEA().read_device(self.dev_id) # a c-types struct
-        self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
         self.prevReadTime = currentTime
+
+        self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
+        self.prevOutputAngle = self.currOutputAngle
+        self.prevOutputVel = self.currOutputVel
+        self.prevTime = self.currTime
+        self.currTime = time.time()
+        self.currOutputAngle = self.get_output_angle_radians()
+        self.currOutputVel = (self.currOutputAngle - self.prevOutputAngle)/(self.currTime - self.prevTime)
+        
 
         # Automatically save all the data as a csv file
         if self.csv_file_name is not None:
@@ -77,11 +95,12 @@ class EB51Man(ActPackMan):
         " Private function. Recalculated and reassigned to class variable with each call of update function "
         " Gear ratio only accurate if no slack in belt "
         ankle = self.get_output_angle_radians()
-        if (ankle > self.break1-0.02 and ankle < self.break2):
+        tolerance = 0.04  # Model tolerance on high and low ends of the angle range
+        if (ankle > self.break1-tolerance and ankle < self.break2):
             return self.gearL1
         if (ankle >= self.break2 and ankle < self.break3):
             return self.gearL2a*(ankle - self.break2) + self.gearL2b
-        if (ankle >= self.break3 and ankle < self.break4+0.02):
+        if (ankle >= self.break3 and ankle < self.break4+tolerance):
             return self.gearL3
         print("Warning: gear ratio not updated")
         return self.gear_ratio
@@ -98,22 +117,22 @@ class EB51Man(ActPackMan):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.ank_ang * 2*np.pi / pow(2,14)
 
-    def get_output_velocity_radians_per_second(self):  # Needs to be updated to reflect velocity at ankle not motor
-        return self.get_motor_velocity_radians_per_second()/self.gear_ratio
+    def get_output_velocity_radians_per_second(self):  
+        return self.currOutputVel
 
-    def get_output_acceleration_radians_per_second_squared(self):  # Needs to be updated to reflect acceleration at ankle not motor
-        return self.get_motor_acceleration_radians_per_second_squared()/self.gear_ratio
+    def get_output_acceleration_radians_per_second_squared(self):  
+        return (self.currOutputVel - self.prevOutputVel)/(self.currTime - self.prevTime)
 
-    def get_output_torque_newton_meters(self): # Needs to be updated to reflect output torque at ankle not at motor
+    def get_output_torque_newton_meters(self): 
         return self.get_motor_torque_newton_meters()*self.gear_ratio
 
     #### 
 
     def set_output_angle_radians(self, angle, slacked = False):  ### Need to check 
         " Function sends command to set motor angle corresponding to ankle angle "
-        if slacked == True & angle <= self.beltInflectionAngle:
+        if (slacked == True) & (angle <= self.beltInflectionAngle):
             target_angle = angle + self.slack
-        elif slacked == True & angle > self.beltInflectionAngle:
+        elif (slacked == True) & (angle > self.beltInflectionAngle):
             target_angle = angle - self.slack
         elif slacked == False:
             target_angle = angle 
@@ -126,25 +145,38 @@ class EB51Man(ActPackMan):
     def set_output_acceleration_radians_per_second_squared(self, acc):
         raise NotImplemented()
     
-    def set_output_torque_newton_meters(self, torque):   ## Needs to be updated
-        " Sets commanded torque to zero if torque command not executable " 
-        if (self.gear_ratio == 0) or (np.sign(self.gear_ratio) != np.sign(torque)):
+    def set_output_torque_newton_meters(self, torque):  # Need to include over-current protection
+        " Sends command for positive (plantarflexion) torque " 
+        if torque < 0:
             torque = 0
-            print("Warning: torque command not executable")
-        self.set_motor_torque_newton_meters(torque/self.gear_ratio)
-        
+            print("Warning: only positive (plantarflexion) torques allowed")
+        motor_torque = torque/self.gear_ratio
+        if self.gear_ratio < 0:
+            motor_torque = DORSI_TENSION_TORQUE   
+        current_slack = self.get_current_slack()
+        if np.sqrt(pow(current_slack,2)) > TORQUE_MODE_SLACK_LIMIT:
+            " don't give full torque "
+            pass
+        if motor_torque/NM_PER_AMP > 5:  # Temporary guard against over-current
+            motor_torque = 5 * NM_PER_AMP 
+        self.set_motor_torque_newton_meters(motor_torque)
 
     # Slack condition
 
-    def get_desired_motor_angle_radians(self, output_angle):   ## Need to check
+    def get_desired_motor_angle_radians(self, output_angle):  
         " Calculate motor angle based on ankle angle "
-        if (output_angle > self.break1-0.02) & (output_angle < self.break2):
-            return (self.angleL1b*(output_angle - self.break1) - self.angleL1c)
+        tolerance = 0.04  # Model tolerance on high and low ends of the angle range
+        if (output_angle > self.break1 - tolerance) & (output_angle < self.break2):
+            return (self.angleL1b*(output_angle - self.break1) + self.angleL1c)
         if (output_angle >= self.break2) & (output_angle < self.break3):
             return (self.angleQa*pow(output_angle - self.break2, 2) + self.angleQb*(output_angle - self.break2) + self.angleQc)
-        if (output_angle >= self.break3) & (output_angle < self.break4+1):
+        if (output_angle >= self.break3) & (output_angle < self.break4 + tolerance):
             return (self.angleL2b*(output_angle - self.break3) + self.angleL2c)
         raise RuntimeError("Not valid output angle") 
+
+    def get_current_slack(self):
+        " Calculate amount of slack (in ankle radians) currently in belt "
+        return self.get_desired_motor_angle_radians(self.get_output_angle_radians()) - self.get_motor_angle_radians()
 
     def set_slack(self, slack):
         " Define the amount of slack (in output/ankle radians) to allow "
