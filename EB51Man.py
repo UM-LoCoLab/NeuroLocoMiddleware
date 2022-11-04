@@ -2,7 +2,7 @@
 
 from ActPackMan import ActPackMan
 from ActPackMan import FlexSEA
-from ActPackMan import DEFAULT_VARIABLES
+from ActPackMan import _ActPackManStates
 from ActPackMan import NM_PER_AMP
 import numpy as np
 import time
@@ -23,8 +23,6 @@ class EB51Man(ActPackMan):
             raise RuntimeError("whichAnkle must be left or right") 
         self.whichAnkle = whichAnkle
         self.slack = slack
-
-        self.calibrationOffset = self._calculate_calibration_offset()
 
         self.prevOutputAngle = np.pi/2
         self.currOutputAngle = np.pi/2
@@ -60,22 +58,28 @@ class EB51Man(ActPackMan):
         self.gearL2b = float(params[8][1])  # Degree 0
         self.gearL3 = float(params[9][1])   # Negative constant gear ratio
 
+        
+
         # Ankle angle where gear ratio flips signs
         self.beltInflectionAngle =  (-1)*self.gearL2b/self.gearL2a + self.break2   
         
+        self.calibrationOffset = 0
+        self.calibrationRealignmentComplete = False
+
 
 
     def update(self):
         " Updates member variables and calls parent update function "
         super().update()
-
         self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
-        self.prevOutputAngle = self.currOutputAngle
-        self.prevOutputVel = self.currOutputVel
-        self.prevTime = self.currTime
-        self.currTime = time.time()
-        self.currOutputAngle = self.get_output_angle_radians()
-        self.currOutputVel = (self.currOutputAngle - self.prevOutputAngle)/(self.currTime - self.prevTime)
+
+        if (self.get_output_angle_radians() != self.currOutputAngle) or ((time.time() - self.currTime ) > 0.016):
+            self.prevOutputAngle = self.currOutputAngle
+            self.prevOutputVel = self.currOutputVel
+            self.prevTime = self.currTime
+            self.currTime = time.time()
+            self.currOutputAngle = self.get_output_angle_radians()
+            self.currOutputVel = (self.currOutputAngle - self.prevOutputAngle)/(self.currTime - self.prevTime)
 
 
     # Private functions
@@ -84,9 +88,9 @@ class EB51Man(ActPackMan):
         " Private function. Recalculated and reassigned to class variable with each call of update function "
         " Gear ratio only accurate if no slack in belt "
         ankle = self.get_output_angle_radians()
-        if self.whichAnkle == "right":
-            ankle = np.pi-ankle
         tolerance = 0.04  # Model tolerance on high and low ends of the angle range
+        if self.whichAnkle == 'right':
+            ankle = np.pi-ankle
         if (ankle > self.break1-tolerance and ankle < self.break2):
             return self.gearL1
         if (ankle >= self.break2 and ankle < self.break3):
@@ -96,8 +100,34 @@ class EB51Man(ActPackMan):
         print("Warning: gear ratio not updated")
         return self.gear_ratio
 
-    def _calculate_calibration_offset(self):
-        return 0
+    def realign_calibration(self):  # Needs to be completed 
+        " Call function to realign calibration when motor turned on "
+        controller_state = self._state
+
+        ## Read gains and save 
+
+        # Spin motor to gather up slack in belt
+        # Find range of encoder relative to ankle angle to find calibration offset
+        self.set_voltage_qaxis_volts(0.7) 
+        winding = True
+        while winding == True:
+            print(self.get_voltage_qaxis_volts())
+            if self.get_current_qaxis_amps() > 0.5:
+                self.set_voltage_qaxis_volts(0.0) 
+                winding = False
+
+        ankle_angle = self.get_output_angle_radians()
+        slackless_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
+        actual_motor_angle = self.get_motor_angle_radians()
+        self.calibrationOffset = slackless_motor_angle - actual_motor_angle  
+        self.calibrationRealignmentComplete = True 
+        self._state = controller_state 
+
+        self.set_current_gains()   # Patch fix -> needs to be changed
+
+        ## Reset gains 
+
+        print("Belt calibration realingment complete")
 
         
     # Tension condition
@@ -124,6 +154,8 @@ class EB51Man(ActPackMan):
 
     def set_output_angle_radians(self, angle, slacked = False):  ### Need to check 
         " Function sends command to set motor angle corresponding to ankle angle "
+        if self.calibrationRealignmentComplete == False:
+            raise RuntimeError("Calibration must be realigned before using position control.")
         if (slacked == True) & (angle <= self.beltInflectionAngle):
             target_angle = angle + self.slack
         elif (slacked == True) & (angle > self.beltInflectionAngle):
@@ -133,7 +165,7 @@ class EB51Man(ActPackMan):
         motor_angle = self.get_desired_motor_angle_radians(target_angle) 
         self.set_motor_angle_radians(motor_angle) 
 
-    def set_output_velocity_radians_per_second(self, vel):
+    def set_output_velocity_radians_per_second(self, vel):  ## Needs to be implemented 
         raise NotImplemented()
 
     def set_output_acceleration_radians_per_second_squared(self, acc):
@@ -156,8 +188,8 @@ class EB51Man(ActPackMan):
     def get_desired_motor_angle_radians(self, output_angle):  
         " Calculate motor angle based on ankle angle "
         tolerance = 0.04  # Model tolerance on high and low ends of the angle range
-        if self.whichAnkle == "right":
-            output_angle = np.pi - output_angle
+        if self.whichAnkle == 'right':
+            output_angle = np.pi-output_angle
         if (output_angle > self.break1 - tolerance) & (output_angle < self.break2):
             return (self.angleL1b*(output_angle - self.break1) + self.angleL1c) + self.calibrationOffset
         if (output_angle >= self.break2) & (output_angle < self.break3):
