@@ -5,8 +5,19 @@ from ActPackMan import FlexSEA
 from ActPackMan import _ActPackManStates
 from ActPackMan import NM_PER_AMP
 import numpy as np
+import math
 import time
 import csv
+
+EB51_DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
+    "state_time",
+    "mot_ang", "mot_vel", "mot_acc",
+    "mot_volt", "mot_cur", 
+    "batt_volt", "batt_curr", 
+    "temperature", 
+    "status_mn", "status_ex", "status_re",
+    "ank_ang"
+]
 
 DORSI_TENSION_TORQUE = 0.05   # Apply small torque in dorsiflexion region to maintain belt tension
 MAX_CURRENT_AMPS = 15  
@@ -15,9 +26,10 @@ INERTIA_G_M2 = 0.12  # Motor rotational moment of inertia in grams per meter squ
 DEG_PER_RAD = 180/np.pi
 
 class EB51Man(ActPackMan):
-    def __init__(self, devttyACMport, whichAnkle, slack = 1.0, **kwargs):
+    def __init__(self, devttyACMport, whichAnkle,  
+    slack = 1.0, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
 
-        super(EB51Man, self).__init__(devttyACMport, **kwargs)
+        super(EB51Man, self).__init__(devttyACMport, vars_to_log = vars_to_log, **kwargs)
 
         if whichAnkle not in ['left', 'right']:
             raise RuntimeError("whichAnkle must be left or right") 
@@ -56,9 +68,7 @@ class EB51Man(ActPackMan):
         self.gearL1 = float(params[7][1])  # Positive constant gear ratio
         self.gearL2a = float(params[8][0])  # Degree 1
         self.gearL2b = float(params[8][1])  # Degree 0
-        self.gearL3 = float(params[9][1])   # Negative constant gear ratio
-
-        
+        self.gearL3 = float(params[9][1])   # Negative constant gear ratio        
 
         # Ankle angle where gear ratio flips signs
         self.beltInflectionAngle =  (-1)*self.gearL2b/self.gearL2a + self.break2   
@@ -108,25 +118,42 @@ class EB51Man(ActPackMan):
 
         # Spin motor to gather up slack in belt
         # Find range of encoder relative to ankle angle to find calibration offset
-        self.set_voltage_qaxis_volts(0.7) 
-        winding = True
-        while winding == True:
-            print(self.get_voltage_qaxis_volts())
-            if self.get_current_qaxis_amps() > 0.5:
-                self.set_voltage_qaxis_volts(0.0) 
-                winding = False
+        beltWinding = True
+        self.set_voltage_qaxis_volts(0.7)
+        while beltWinding == True:
+            self.update()
+            #print("voltage ", self.get_voltage_qaxis_volts(), " current ", self.get_current_qaxis_amps()) 
+            if self.get_current_qaxis_amps() > 1:
+                self.set_voltage_qaxis_volts(0.0)
+                self.update()
+                beltWinding = False
+                #print("Current threshold hit")
 
         ankle_angle = self.get_output_angle_radians()
-        slackless_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
+        model_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
         actual_motor_angle = self.get_motor_angle_radians()
-        self.calibrationOffset = slackless_motor_angle - actual_motor_angle  
-        self.calibrationRealignmentComplete = True 
-        self._state = controller_state 
 
+        # start_time = time.time()    
+        # winding = True
+        # while winding == True: 
+        #     self.τ = 1
+        #     if time.time() > start_time + 3:
+        #         ankle_angle = self.get_output_angle_radians()
+        #         model_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
+        #         actual_motor_angle = self.get_motor_angle_radians()
+        #         self.τ = 0
+        #         winding = False
+        
+        self.calibrationOffset = -math.floor((model_motor_angle - actual_motor_angle)/np.pi) * np.pi
+        # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
+        self.calibrationRealignmentComplete = True 
+
+        self._state = controller_state 
         self.set_current_gains()   # Patch fix -> needs to be changed
 
         ## Reset gains 
 
+        time.sleep(0.1)
         print("Belt calibration realingment complete")
 
         
@@ -165,7 +192,7 @@ class EB51Man(ActPackMan):
         motor_angle = self.get_desired_motor_angle_radians(target_angle) 
         self.set_motor_angle_radians(motor_angle) 
 
-    def set_output_velocity_radians_per_second(self, vel):  ## Needs to be implemented 
+    def set_output_velocity_radians_per_second(self, vel):  
         raise NotImplemented()
 
     def set_output_acceleration_radians_per_second_squared(self, acc):
