@@ -1,6 +1,7 @@
 """ An object that inherits from ActPackMan and wraps Dephy ExoBoot """
 
 from ActPackMan import ActPackMan
+from SoftRealtimeLoop import SoftRealtimeLoop
 from ActPackMan import FlexSEA
 from ActPackMan import _ActPackManStates
 from ActPackMan import NM_PER_AMP
@@ -8,6 +9,8 @@ import numpy as np
 import math
 import time
 import csv
+
+from flexsea import fxEnums as fxe  # pylint: disable=no-name-in-module
 
 EB51_DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.py
     "state_time",
@@ -24,6 +27,7 @@ MAX_CURRENT_AMPS = 15
 MAX_MOTOR_TORQUE = MAX_CURRENT_AMPS * NM_PER_AMP
 INERTIA_G_M2 = 0.12  # Motor rotational moment of inertia in grams per meter squared
 DEG_PER_RAD = 180/np.pi
+MAX_BATTERY_CURRENT_AMPS = 11 
 
 class EB51Man(ActPackMan):
     def __init__(self, devttyACMport, whichAnkle,  
@@ -76,11 +80,19 @@ class EB51Man(ActPackMan):
         self.calibrationOffset = 0
         self.calibrationRealignmentComplete = False
 
+        self.kp = 0
+        self.ki = 0
+        self.kd = 0
+        self.K = 0
+        self.B = 0
+        self.ff = 0
+
 
 
     def update(self):
         " Updates member variables and calls parent update function "
         super().update()
+
         self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
 
         if (self.get_output_angle_radians() != self.currOutputAngle) or ((time.time() - self.currTime ) > 0.016):
@@ -91,6 +103,35 @@ class EB51Man(ActPackMan):
             self.currOutputAngle = self.get_output_angle_radians()
             self.currOutputVel = (self.currOutputAngle - self.prevOutputAngle)/(self.currTime - self.prevTime)
 
+    # Gain setting and control mode switching
+
+    def set_position_gains(self, kp=200, ki=50, kd=0):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        super().set_position_gains(kp=kp, ki=ki, kd=kd)
+
+    def set_current_gains(self, kp=40, ki=400, ff=128):
+        self.kp = kp
+        self.ki = ki
+        self.ff = ff
+        super().set_current_gains(kp = kp, ki = ki, ff = ff)
+
+    def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
+        self.kp = kp
+        self.ki = ki
+        self.K = K
+        self.B = B
+        self.ff = ff
+        super().set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K, B=B, ff=ff)
+
+    def set_impedance_gains_real_unit_KB(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
+        self.kp = kp
+        self.ki = ki
+        self.K = K
+        self.B = B
+        self.ff = ff
+        super().set_impedance_gains_real_unit_KB(kp=kp, ki=ki, K=K, B=B, ff=ff)
 
     # Private functions
 
@@ -112,50 +153,59 @@ class EB51Man(ActPackMan):
 
     def realign_calibration(self):  # Needs to be completed 
         " Call function to realign calibration when motor turned on "
+        print("Realign calibration")
+        self.calibrationOffset = 0
         controller_state = self._state
 
-        ## Read gains and save 
-
-        # Spin motor to gather up slack in belt
-        # Find range of encoder relative to ankle angle to find calibration offset
-        beltWinding = True
         self.set_voltage_qaxis_volts(0.7)
-        while beltWinding == True:
+        loop = SoftRealtimeLoop(dt = 0.01, report=False, fade=0.01)
+        for t in loop:
             self.update()
-            #print("voltage ", self.get_voltage_qaxis_volts(), " current ", self.get_current_qaxis_amps()) 
-            if self.get_current_qaxis_amps() > 1:
-                self.set_voltage_qaxis_volts(0.0)
+            # print("voltage ", self.get_voltage_qaxis_volts(), " current ", self.get_current_qaxis_amps()) 
+            if self.get_current_qaxis_amps() > 1.6:
                 self.update()
-                beltWinding = False
-                #print("Current threshold hit")
+                # print("Current threshold hit")
+                break
 
+        time.sleep(0.5) 
+        self.set_voltage_qaxis_volts(0.0)
         ankle_angle = self.get_output_angle_radians()
         model_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
         actual_motor_angle = self.get_motor_angle_radians()
-
-        # start_time = time.time()    
-        # winding = True
-        # while winding == True: 
-        #     self.τ = 1
-        #     if time.time() > start_time + 3:
-        #         ankle_angle = self.get_output_angle_radians()
-        #         model_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
-        #         actual_motor_angle = self.get_motor_angle_radians()
-        #         self.τ = 0
-        #         winding = False
         
-        self.calibrationOffset = -math.floor((model_motor_angle - actual_motor_angle)/np.pi) * np.pi
+        # self.calibrationOffset = -math.floor((model_motor_angle - actual_motor_angle)/np.pi) * np.pi 
+        self.calibrationOffset = actual_motor_angle - model_motor_angle
         # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
+        
+        time.sleep(0.1)
+        if abs(self.get_desired_motor_angle_radians(ankle_angle) - actual_motor_angle) > 0.5:
+            print("Warning: calibration realignment failed, trying again")
+            time.sleep(2)
+            self.realign_calibration()
+        
         self.calibrationRealignmentComplete = True 
-
         self._state = controller_state 
-        self.set_current_gains()   # Patch fix -> needs to be changed
-
-        ## Reset gains 
+        FlexSEA().set_gains(self.dev_id, self.kp, self.ki, self.kd, self.K, self.B, self.ff)
 
         time.sleep(0.1)
         print("Belt calibration realingment complete")
 
+
+
+    # Motor-side variables
+
+    def get_motor_torque_newton_meters(self):
+        return self.get_current_qaxis_amps()*NM_PER_AMP
+
+    def set_motor_torque_newton_meters(self, torque):
+        battery_current = abs(self.get_current_qaxis_amps()) * abs(self.get_voltage_qaxis_volts()) / self.get_battery_voltage_volts()
+        ratio = battery_current / MAX_BATTERY_CURRENT_AMPS
+        if ratio > 1: 
+            scale = 1/ratio
+        else:
+            scale = 1
+        desired_current = scale * torque/NM_PER_AMP
+        return self.set_current_qaxis_amps(desired_current)   
         
     # Tension condition
 
@@ -204,6 +254,10 @@ class EB51Man(ActPackMan):
             torque = 0
             print("Warning: only positive (plantarflexion) torques allowed")
         motor_torque = torque/self.gear_ratio
+
+        # Motor inertia compensation
+        motor_torque = motor_torque + INERTIA_G_M2 * 0.001 * self.get_motor_acceleration_radians_per_second_squared()
+        
         if self.gear_ratio < 0:
             motor_torque = DORSI_TENSION_TORQUE   
         if motor_torque > MAX_MOTOR_TORQUE:  
@@ -228,6 +282,10 @@ class EB51Man(ActPackMan):
     def set_slack(self, slack):
         " Define the amount of slack (in output/ankle radians) to allow "
         self.slack = slack
+
+    # Motor-side variables 
+    τm = property(get_motor_torque_newton_meters, set_motor_torque_newton_meters,
+        doc="motor_torque_newton_meters")
 
     # Output-side variables (ankle)
 
