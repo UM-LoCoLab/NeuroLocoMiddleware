@@ -31,7 +31,7 @@ MAX_BATTERY_CURRENT_AMPS = 11
 
 class EB51Man(ActPackMan):
     def __init__(self, devttyACMport, whichAnkle,  
-    slack = 1.0, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
+    slack = 0.1, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
 
         super(EB51Man, self).__init__(devttyACMport, vars_to_log = vars_to_log, **kwargs)
 
@@ -167,13 +167,11 @@ class EB51Man(ActPackMan):
                 # print("Current threshold hit")
                 break
 
-        time.sleep(0.5) 
         self.set_voltage_qaxis_volts(0.0)
         ankle_angle = self.get_output_angle_radians()
         model_motor_angle = self.get_desired_motor_angle_radians(ankle_angle)
         actual_motor_angle = self.get_motor_angle_radians()
         
-        # self.calibrationOffset = -math.floor((model_motor_angle - actual_motor_angle)/np.pi) * np.pi 
         self.calibrationOffset = actual_motor_angle - model_motor_angle
         # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
         
