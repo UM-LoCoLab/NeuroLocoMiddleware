@@ -192,7 +192,7 @@ class ActPackMan(object):
         assert(isfinite(kp) and 0 <= kp and kp <= 1000)
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
-        self.set_voltage_qaxis_volts(0.0)
+        # self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
