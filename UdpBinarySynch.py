@@ -24,7 +24,7 @@ class UdpBase:
 
 class UdpBinarySynchB(UdpBase):
     def __init__(self, recv_IP, recv_port, send_IP, send_port, **kwargs):
-        super(self).__init__(recv_IP, recv_port, send_IP, send_port, **kwargs)
+        super().__init__(recv_IP, recv_port, send_IP, send_port, **kwargs)
         self.my_count = 0
         self.data_out = None
 
@@ -49,7 +49,7 @@ class UdpBinarySynchB(UdpBase):
 
 class UdpBinarySynchA(UdpBase):
     def __init__(self, recv_IP, recv_port, send_IP, send_port, **kwargs):
-        super(self).__init__(recv_IP, recv_port, send_IP, send_port, **kwargs)
+        super().__init__(recv_IP, recv_port, send_IP, send_port, **kwargs)
         self.my_count = -42
         self.data_out = None
 
@@ -57,10 +57,10 @@ class UdpBinarySynchA(UdpBase):
         """ read all messages, then send data. """
         while True:
             try: 
-                message = self.socketB.recv(zmq.NOBLOCK)
+                message = self.recv()
                 self.my_count=int(message[1:4])
                 self.data_out = np.frombuffer(message[4:])
-            except zmq.error.Again:
+            except BlockingIOError:
                 break
         self.send(b"A%03d%s"%(self.my_count, data_in.tobytes()))
 
