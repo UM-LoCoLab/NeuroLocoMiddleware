@@ -6,6 +6,7 @@ class StatProfiler():
     def __init__(self, name):
         self.N, self.agg, self.aggvar = 0, 0.0, 0.0
         self.name=name
+        self.t0 = None
 
     def __del__(self):
         try:
@@ -22,10 +23,11 @@ class StatProfiler():
 
     def toc(self):
         """ Matlab style """
-        t = time.time()-self.t0
-        self.N+=1
-        self.agg+=t
-        self.aggvar+=t**2
+        if self.t0 is not None:
+            t = time.time()-self.t0
+            self.N+=1
+            self.agg+=t
+            self.aggvar+=t**2
 
     def profile(self, func):
         """ lambda style """
@@ -57,6 +59,13 @@ class SSProfile(StatProfiler):
 def test_no_runs():
     SSProfile("test_none")
 
+def test_all_tocs():
+    SSProfile("test_all_tocs").toc()
+    SSProfile("test_all_tocs").toc()
+    SSProfile("test_all_tocs").toc()
+    SSProfile("test_all_tocs").toc()
+    SSProfile("test_all_tocs").toc()
+
 def test_decorator():
     @SSProfile("decorator").decorate
     def my_decorated_function():
@@ -76,6 +85,7 @@ def test_tic_toc():
 
 if __name__ == '__main__':
     test_no_runs()
+    test_all_tocs()
     test_decorator()
     test_lambda()
     test_tic_toc()

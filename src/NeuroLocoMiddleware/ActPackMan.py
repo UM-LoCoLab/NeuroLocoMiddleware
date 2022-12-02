@@ -43,7 +43,8 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
     "state_time",
     "mot_ang", "mot_vel", "mot_acc",
     "mot_volt", "mot_cur", 
-    "batt_volt", "batt_curr"
+    "batt_volt", "batt_curr", 
+    "status_mn", "status_ex", "status_re"
 ]
 
 
@@ -106,6 +107,10 @@ class ActPackMan(object):
 
         if self.hdf5_file_name is not None:
             self.hdf5_file = h5py.File(self.hdf5_file_name, 'w')
+            self.hdf5_file.create_dataset("pi_time", (0,), chunks=True, maxshape=(None, ), dtype="float64")
+            for var in self.vars_to_log:
+                self.hdf5_file.create_dataset(var, (0,), chunks=True, maxshape=(None, ), dtype="float64")
+
 
 
         fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
@@ -177,7 +182,13 @@ class ActPackMan(object):
             self.csv_writer.writerow([time.time()]+[getattr(self.act_pack,x) for x in self.vars_to_log])
 
         if self.hdf5_file_name is not None:
-            raise NotImplemented()
+            # There are performance optimization I can do if this is slow
+            for key in self.hdf5_file.keys():
+                shape = self.hdf5_file[key]
+                self.hdf5_file[key].reshape((shape[0]+1,)+shape[1:])
+            self.hdf5_file["pi_time"][-1] = time.time()
+            for var in self.vars_to_log:
+                self.hdf5_file[var][-1] = getattr(self.act_pack,x)
 
     ## Gain Setting and Control Mode Switching (using hidden member self._state)
     """
@@ -191,7 +202,7 @@ class ActPackMan(object):
         assert(isfinite(kp) and 0 <= kp and kp <= 1000)
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
-        self.set_voltage_qaxis_volts(0.0)
+        # self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
         self.set_motor_angle_radians(self.get_motor_angle_radians())
@@ -250,7 +261,7 @@ class ActPackMan(object):
 
     def set_voltage_qaxis_volts(self, voltage_qaxis):
         self._state = _ActPackManStates.VOLTAGE # gains must be reset after reverting to voltage mode.
-        FlexSEA().send_motor_command(self.dev_id, fxe.FX_NONE, int(voltage_qaxis*1000))
+        FlexSEA().send_motor_command(self.dev_id, fxe.FX_VOLTAGE, int(voltage_qaxis*1000))
 
     def get_current_qaxis_amps(self):
         if (self.act_pack is None):
