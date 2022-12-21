@@ -250,7 +250,7 @@ class EB51Man(ActPackMan):
         " Sends command for positive (plantarflexion) torque " 
         if torque < 0:
             torque = 0
-            print("Warning: only positive (plantarflexion) torques allowed")
+            # print("Warning: only positive (plantarflexion) torques allowed")
         motor_torque = torque/self.gear_ratio
 
         # Motor inertia compensation
