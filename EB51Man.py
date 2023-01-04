@@ -31,7 +31,7 @@ MAX_BATTERY_CURRENT_AMPS = 11
 
 class EB51Man(ActPackMan):
     def __init__(self, devttyACMport, whichAnkle,  
-    slack = 0.1, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
+    slack = 0.08, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
 
         super(EB51Man, self).__init__(devttyACMport, vars_to_log = vars_to_log, **kwargs)
 
@@ -157,13 +157,15 @@ class EB51Man(ActPackMan):
         self.calibrationOffset = 0
         controller_state = self._state
 
-        self.set_voltage_qaxis_volts(0.7)
+        winding_voltage = 0.8 
+        if self.whichAnkle == 'right':
+            winding_voltage = (-1) * winding_voltage 
+        self.set_voltage_qaxis_volts(winding_voltage)
         loop = SoftRealtimeLoop(dt = 0.01, report=False, fade=0.01)
         for t in loop:
             self.update()
             # print("voltage ", self.get_voltage_qaxis_volts(), " current ", self.get_current_qaxis_amps()) 
-            if self.get_current_qaxis_amps() > 1.6:
-                self.update()
+            if abs(self.get_current_qaxis_amps()) > 2:
                 # print("Current threshold hit")
                 break
 
@@ -173,9 +175,9 @@ class EB51Man(ActPackMan):
         actual_motor_angle = self.get_motor_angle_radians()
         
         self.calibrationOffset = actual_motor_angle - model_motor_angle
-        # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
+        print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
         
-        time.sleep(0.1)
+        time.sleep(0.05)
         if abs(self.get_desired_motor_angle_radians(ankle_angle) - actual_motor_angle) > 0.5:
             print("Warning: calibration realignment failed, trying again")
             time.sleep(2)
@@ -185,7 +187,7 @@ class EB51Man(ActPackMan):
         self._state = controller_state 
         FlexSEA().set_gains(self.dev_id, self.kp, self.ki, self.kd, self.K, self.B, self.ff)
 
-        time.sleep(0.1)
+        time.sleep(0.05)
         print("Belt calibration realingment complete")
 
 
@@ -203,9 +205,11 @@ class EB51Man(ActPackMan):
         else:
             scale = 1
         desired_current = scale * torque/NM_PER_AMP
+        if self.whichAnkle == 'right':
+            desired_current = (-1) * desired_current 
         return self.set_current_qaxis_amps(desired_current)   
         
-    # Tension condition
+    # Tension condition 
 
     def get_output_angle_degrees(self):
         " Convert ankle angle to degrees "
@@ -267,8 +271,8 @@ class EB51Man(ActPackMan):
     def get_desired_motor_angle_radians(self, output_angle):  
         " Calculate motor angle based on ankle angle "
         tolerance = 0.04  # Model tolerance on high and low ends of the angle range
-        if self.whichAnkle == 'right':
-            output_angle = np.pi-output_angle
+        # if self.whichAnkle == 'right':
+        #     output_angle = np.pi-output_angle
         if (output_angle > self.break1 - tolerance) & (output_angle < self.break2):
             return (self.angleL1b*(output_angle - self.break1) + self.angleL1c) + self.calibrationOffset
         if (output_angle >= self.break2) & (output_angle < self.break3):
@@ -276,6 +280,13 @@ class EB51Man(ActPackMan):
         if (output_angle >= self.break3) & (output_angle < self.break4 + tolerance):
             return (self.angleL2b*(output_angle - self.break3) + self.angleL2c) + self.calibrationOffset
         raise RuntimeError("Not valid output angle") 
+
+    def get_slack(self):
+        current_ankle_angle = self.get_output_angle_radians()
+        tensioned_motor_angle = self.get_desired_motor_angle_radians(current_ankle_angle)
+        actual_motor_angle = self.get_motor_angle_radians()
+        print("tensioned motor angle ", tensioned_motor_angle, " actual motor angle ", actual_motor_angle)
+        return abs(tensioned_motor_angle - actual_motor_angle)
 
     def set_slack(self, slack):
         " Define the amount of slack (in output/ankle radians) to allow "
