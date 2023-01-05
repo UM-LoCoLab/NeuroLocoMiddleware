@@ -175,7 +175,7 @@ class EB51Man(ActPackMan):
         actual_motor_angle = self.get_motor_angle_radians()
         
         self.calibrationOffset = actual_motor_angle - model_motor_angle
-        print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
+        # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
         
         time.sleep(0.05)
         if abs(self.get_desired_motor_angle_radians(ankle_angle) - actual_motor_angle) > 0.5:
@@ -204,9 +204,11 @@ class EB51Man(ActPackMan):
             scale = 1/ratio
         else:
             scale = 1
-        desired_current = scale * torque/NM_PER_AMP
-        if self.whichAnkle == 'right':
-            desired_current = (-1) * desired_current 
+        desired_current = scale * torque/NM_PER_AMP 
+        if self.whichAnkle == 'right' and desired_current > 0:
+            desired_current = (-1)*desired_current 
+        elif self.whichAnkle == 'left' and desired_current < 0:
+            desired_current = (-1)*desired_current
         return self.set_current_qaxis_amps(desired_current)   
         
     # Tension condition 
@@ -252,18 +254,18 @@ class EB51Man(ActPackMan):
     
     def set_output_torque_newton_meters(self, torque):  # Need to include over-current protection
         " Sends command for positive (plantarflexion) torque " 
-        if torque < 0:
+        if torque > 0:
             torque = 0
             # print("Warning: only positive (plantarflexion) torques allowed")
         motor_torque = torque/self.gear_ratio
 
         # Motor inertia compensation
-        motor_torque = motor_torque + INERTIA_G_M2 * 0.001 * self.get_motor_acceleration_radians_per_second_squared()
+        motor_torque = motor_torque + np.sign(motor_torque) * INERTIA_G_M2 * 0.001 * self.get_motor_acceleration_radians_per_second_squared()
         
         if self.gear_ratio < 0:
             motor_torque = DORSI_TENSION_TORQUE   
-        if motor_torque > MAX_MOTOR_TORQUE:  
-            motor_torque = MAX_MOTOR_TORQUE
+        if abs(motor_torque) > MAX_MOTOR_TORQUE:  
+            motor_torque = np.sign(motor_torque) * MAX_MOTOR_TORQUE
         self.set_motor_torque_newton_meters(motor_torque)
 
     # Slack condition
@@ -285,7 +287,7 @@ class EB51Man(ActPackMan):
         current_ankle_angle = self.get_output_angle_radians()
         tensioned_motor_angle = self.get_desired_motor_angle_radians(current_ankle_angle)
         actual_motor_angle = self.get_motor_angle_radians()
-        print("tensioned motor angle ", tensioned_motor_angle, " actual motor angle ", actual_motor_angle)
+        # print("tensioned motor angle ", tensioned_motor_angle, " actual motor angle ", actual_motor_angle)
         return abs(tensioned_motor_angle - actual_motor_angle)
 
     def set_slack(self, slack):
