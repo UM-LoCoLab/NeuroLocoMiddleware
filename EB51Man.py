@@ -165,7 +165,7 @@ class EB51Man(ActPackMan):
         for t in loop:
             self.update()
             # print("voltage ", self.get_voltage_qaxis_volts(), " current ", self.get_current_qaxis_amps()) 
-            if abs(self.get_current_qaxis_amps()) > 2:
+            if abs(self.get_current_qaxis_amps()) > 1.6:
                 # print("Current threshold hit")
                 break
 
