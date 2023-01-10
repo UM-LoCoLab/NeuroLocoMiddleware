@@ -46,13 +46,15 @@ class AhrsManager():
         self.node = mscl.InertialNode(self.connection)
         self.node.setToIdle()
 
-        self.deltaTime = 0
-        self.sampleRate = mscl.SampleRate(1,500)
+        time.sleep(0.05)
+
+        # self.deltaTime = 0
+        # self.sampleRate = mscl.SampleRate(1,500)
         #Resume node for streaming
-        self.node.resume()
+        # self.node.resume()
         #if the node supports AHRS/IMU
         if self.node.features().supportsCategory(mscl.MipTypes.CLASS_AHRS_IMU):
-            self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU)
+            self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU, True)
 
         #if the self.node supports Estimation Filter
         if self.node.features().supportsCategory(mscl.MipTypes.CLASS_ESTFILTER):
