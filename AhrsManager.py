@@ -11,7 +11,7 @@ import mscl
 
 
 class AhrsManager():
-    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0"):
+    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0", baud = 921600):
         self.port = realpath(port) # dereference symlinks
         self.save_csv = not (csv_file_name is None)
         self.csv_file_name = csv_file_name
@@ -28,6 +28,7 @@ class AhrsManager():
         self.x_forget = 0.0
         self.acc_bias = np.zeros((3,1))
         self.lp_xdd = 0.0
+        self.baud = baud
 
     def __enter__(self):
         if self.save_csv:
@@ -41,17 +42,14 @@ class AhrsManager():
             self.csv_writer = csv.writer(self.csv_file)
 
 
-        self.connection = mscl.Connection.Serial(self.port, 921600)
+        self.connection = mscl.Connection.Serial(self.port, self.baud)
         self.node = mscl.InertialNode(self.connection)
-        # self.node.setToIdle()
+        self.node.setToIdle()
 
-
-
-
-        # self.deltaTime = 0
-        # self.sampleRate = mscl.SampleRate(1,500)
+        self.deltaTime = 0
+        self.sampleRate = mscl.SampleRate(1,500)
         #Resume node for streaming
-        # self.node.resume()
+        self.node.resume()
         #if the node supports AHRS/IMU
         if self.node.features().supportsCategory(mscl.MipTypes.CLASS_AHRS_IMU):
             self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU)
