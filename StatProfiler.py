@@ -53,6 +53,10 @@ class SSProfile(StatProfiler):
             cls._instances[name] = StatProfiler(name)
         return cls._instances[name]
 
+    def cleanup():
+        SSProfile._instances = {}
+        
+
 
 def test_no_runs():
     SSProfile("test_none")

@@ -12,7 +12,6 @@ from math import isfinite
 from os.path import realpath
 
 # Dephy library import
-from flexsea import fxUtils as fxu  # pylint: disable=no-name-in-module
 from flexsea import fxEnums as fxe  # pylint: disable=no-name-in-module
 from flexsea.device import Device
 
@@ -36,7 +35,7 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
 RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
 G_PER_ACCELEROMETER_LSB = 1./8192
-NM_PER_AMP = 0.1129 # NM_PER_AMP = 0.146
+NM_PER_AMP = 0.1133 # NM_PER_AMP
 RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
 RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
@@ -110,11 +109,6 @@ class ActPackMan(object):
             self.device.dev_id, self.devttyACMport, self.named_port))
             
         time.sleep(0.1)
-
-        # app_type = fxs.get_app_type(dev_id)
-        # self.app_type = fxs.get_app_type(self.dev_id)
-        # print(self.app_type)
-
         self._state = _ActPackManStates.VOLTAGE
         self.entered = True
         return self
@@ -123,7 +117,7 @@ class ActPackMan(object):
         """ Runs when leaving scope of the 'with' block. Properly terminates comms and file access."""
 
         if not (self.device is None):
-            print('Turning off control for device %s (i.e. %s)'%(self.devttyACMport, self.named_port))
+            print('\nTurning off control for device %s (i.e. %s)'%(self.devttyACMport, self.named_port))
             t0=time.time()
             self.v = 0.0
             self.update()
@@ -133,7 +127,8 @@ class ActPackMan(object):
                 self.v = 0.0
                 time.sleep(1.0/self.updateFreq)
 
-            self.device.close()
+            del self.device
+            self.device = None
             time.sleep(1.0/self.updateFreq)
             print('done.', time.time()-t0)
         
@@ -365,6 +360,11 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan not updated before state is queried.")
         return self.act_pack.ank_ang
 
+    def get_joint_encoder_vel_counts(self):
+        if (self.act_pack is None):
+            raise RuntimeError("ActPackMan not updated before state is queried.")
+        return self.act_pack.ank_vel
+
     def get_output_acceleration_radians_per_second_squared(self):
         return self.get_motor_acceleration_radians_per_second_squared()/self.gear_ratio
 
@@ -475,6 +475,7 @@ class ActPackMan(object):
     τ = property(get_output_torque_newton_meters, set_output_torque_newton_meters,
         doc="output_torque_newton_meters")
     jointEncoderCounts = property(get_joint_encoder_counts)
+    jointEncoderVelocityCounts = property(get_joint_encoder_vel_counts)
 
     # other
     α = property(get_accelerometer_vector_gravity, doc="accelerometer vector, g")
