@@ -199,15 +199,17 @@ class ActPackMan(object):
     """
 
     def set_position_gains(self, kp=200, ki=50, kd=0):
+        # print("setting position gains")
         assert(isfinite(kp) and 0 <= kp and kp <= 1000)
         assert(isfinite(ki) and 0 <= ki and ki <= 1000)
         assert(isfinite(kd) and 0 <= kd and kd <= 1000)
         # self.set_voltage_qaxis_volts(0.0)
         self._state=_ActPackManStates.POSITION
         FlexSEA().set_gains(self.dev_id, kp, ki, kd, 0, 0, 0)
-        self.set_motor_angle_radians(self.get_motor_angle_radians())
+        # self.set_motor_angle_radians(self.get_motor_angle_radians())
 
     def set_current_gains(self, kp=40, ki=400, ff=128):
+        # print("setting current gains")
         assert(isfinite(kp) and 0 <= kp and kp <= 80)
         assert(isfinite(ki) and 0 <= ki and ki <= 800)
         assert(isfinite(ff) and 0 <= ff and ff <= 128)
@@ -215,7 +217,6 @@ class ActPackMan(object):
         self._state=_ActPackManStates.CURRENT
         FlexSEA().set_gains(self.dev_id, kp, ki, 0, 0, 0, ff)
         # self.set_current_qaxis_amps(0.0)
-        time.sleep(0.05)
 
     def set_impedance_gains_raw_unit_KB(self, kp=40, ki=400, K=300, B=1600, ff=128):
         # Use this for integer gains suggested by the dephy website

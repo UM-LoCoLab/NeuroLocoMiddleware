@@ -5,6 +5,7 @@ from SoftRealtimeLoop import SoftRealtimeLoop
 from ActPackMan import FlexSEA
 from ActPackMan import _ActPackManStates
 from ActPackMan import NM_PER_AMP
+from IIR2Filter import IIR2Filter
 import numpy as np
 import math
 import time
@@ -30,11 +31,12 @@ DEG_PER_RAD = 180/np.pi
 MAX_BATTERY_CURRENT_AMPS = 11 
 
 class EB51Man(ActPackMan):
-    def __init__(self, devttyACMport, whichAnkle,  
+    def __init__(self, devttyACMport, whichAnkle, dt,
     slack = 0.08, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
 
         super(EB51Man, self).__init__(devttyACMport, vars_to_log = vars_to_log, **kwargs)
 
+        self.dt = dt
         if whichAnkle not in ['left', 'right']:
             raise RuntimeError("whichAnkle must be left or right") 
         self.whichAnkle = whichAnkle
@@ -87,6 +89,9 @@ class EB51Man(ActPackMan):
         self.B = 0
         self.ff = 0
 
+        # self.FilterMotAcc = IIR2Filter(2, [15],'lowpass',fs=1.0/self.dt)
+        # self.mot_acc = 0.0
+
 
 
     def update(self):
@@ -94,6 +99,8 @@ class EB51Man(ActPackMan):
         super().update()
 
         self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
+        # self.mot_acc = self.FilterMotAcc.filter(self.get_motor_acceleration_radians_per_second_squared())
+
 
         if (self.get_output_angle_radians() != self.currOutputAngle) or ((time.time() - self.currTime ) > 0.016):
             self.prevOutputAngle = self.currOutputAngle
@@ -260,7 +267,7 @@ class EB51Man(ActPackMan):
         motor_torque = torque/self.gear_ratio
 
         # Motor inertia compensation
-        motor_torque = motor_torque + np.sign(motor_torque) * INERTIA_G_M2 * 0.001 * self.get_motor_acceleration_radians_per_second_squared()
+        # motor_torque = motor_torque + np.sign(motor_torque) * INERTIA_G_M2 * 0.001 * self.mot_acc
         
         if self.gear_ratio < 0:
             motor_torque = DORSI_TENSION_TORQUE   
@@ -283,12 +290,15 @@ class EB51Man(ActPackMan):
             return (self.angleL2b*(output_angle - self.break3) + self.angleL2c) + self.calibrationOffset
         raise RuntimeError("Not valid output angle") 
 
-    def get_slack(self):
+    def get_actual_slack(self):
         current_ankle_angle = self.get_output_angle_radians()
         tensioned_motor_angle = self.get_desired_motor_angle_radians(current_ankle_angle)
         actual_motor_angle = self.get_motor_angle_radians()
         # print("tensioned motor angle ", tensioned_motor_angle, " actual motor angle ", actual_motor_angle)
-        return abs(tensioned_motor_angle - actual_motor_angle)
+        return tensioned_motor_angle - actual_motor_angle
+
+    def get_slack(self):
+        return self.slack
 
     def set_slack(self, slack):
         " Define the amount of slack (in output/ankle radians) to allow "
