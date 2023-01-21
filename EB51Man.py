@@ -49,7 +49,12 @@ class EB51Man(ActPackMan):
         self.prevTime = time.time()
         self.currTime = time.time()
         
-        with open("/home/pi/MBLUE/device_side/parameters/MBLUE_Ankle_params.csv", 'r') as params_file:
+        if whichAnkle == 'right':
+            param_filepath = "/home/pi/MBLUE/device_side/parameters/MBLUE_Ankle_params_right.csv"
+        elif whichAnkle == 'left':
+            param_filepath = "/home/pi/MBLUE/device_side/parameters/MBLUE_Ankle_params_left.csv"
+
+        with open(param_filepath, 'r') as params_file:
             params_reader = csv.reader(params_file)
             params = []
             for row in params_reader:
