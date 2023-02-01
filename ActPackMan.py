@@ -111,8 +111,6 @@ class ActPackMan(object):
             for var in self.vars_to_log:
                 self.hdf5_file.create_dataset(var, (0,), chunks=True, maxshape=(None, ), dtype="float64")
 
-
-
         fxs = FlexSEA() # grab library singleton (see impl. in ActPackMan.py)
         # dev_id = fxs.open(port, baud_rate, log_level=6)
         self.dev_id = fxs.open(self.devttyACMport, self.baudRate, log_level=self.logLevel)

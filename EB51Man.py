@@ -42,6 +42,9 @@ class EB51Man(ActPackMan):
         self.whichAnkle = whichAnkle
         self.slack = slack
 
+        if whichAnkle == 'left':
+            self.slack = (-1)*self.slack
+
         self.prevOutputAngle = np.pi/2
         self.currOutputAngle = np.pi/2
         self.prevOutputVel = 0
@@ -59,7 +62,7 @@ class EB51Man(ActPackMan):
             params = []
             for row in params_reader:
                 params.append(row) 
-        
+
         # Fitting break points 
         self.break1 = float(params[1][0])
         self.break2 = float(params[1][1])
@@ -105,7 +108,6 @@ class EB51Man(ActPackMan):
 
         self.gear_ratio = self._calculate_gear_ratio()  # Update gear ratio for ankle angle output
         # self.mot_acc = self.FilterMotAcc.filter(self.get_motor_acceleration_radians_per_second_squared())
-
 
         if (self.get_output_angle_radians() != self.currOutputAngle) or ((time.time() - self.currTime ) > 0.016):
             self.prevOutputAngle = self.currOutputAngle
@@ -188,13 +190,12 @@ class EB51Man(ActPackMan):
         
         self.calibrationOffset = actual_motor_angle - model_motor_angle
         # print("model_motor_angle ", model_motor_angle, " actual_motor_angle ", actual_motor_angle, " calibration offset ", self.calibrationOffset)
-        
-        time.sleep(0.05)
+        # print("belt inflection angle ", self.beltInflectionAngle)
+
         if abs(self.get_desired_motor_angle_radians(ankle_angle) - actual_motor_angle) > 0.5:
             print("Warning: calibration realignment failed, trying again")
             time.sleep(2)
-            self.realign_calibration()
-        
+            self.realign_calibration() 
         self.calibrationRealignmentComplete = True 
         self._state = controller_state 
         FlexSEA().set_gains(self.dev_id, self.kp, self.ki, self.kd, self.K, self.B, self.ff)
@@ -285,8 +286,8 @@ class EB51Man(ActPackMan):
     def get_desired_motor_angle_radians(self, output_angle):  
         " Calculate motor angle based on ankle angle "
         tolerance = 0.04  # Model tolerance on high and low ends of the angle range
-        # if self.whichAnkle == 'right':
-        #     output_angle = np.pi-output_angle
+        # if self.whichAnkle == 'left':
+        #     output_angle = np.pi-output_angle 
         if (output_angle > self.break1 - tolerance) & (output_angle < self.break2):
             return (self.angleL1b*(output_angle - self.break1) + self.angleL1c) + self.calibrationOffset
         if (output_angle >= self.break2) & (output_angle < self.break3):
@@ -307,7 +308,10 @@ class EB51Man(ActPackMan):
 
     def set_slack(self, slack):
         " Define the amount of slack (in output/ankle radians) to allow "
-        self.slack = slack
+        if self.whichAnkle == "left":
+            self.slack = (-1)*slack
+        elif self.whichAnkle == "right":
+            self.slack = slack
 
     # Motor-side variables 
     τm = property(get_motor_torque_newton_meters, set_motor_torque_newton_meters,
