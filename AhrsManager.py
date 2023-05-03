@@ -138,7 +138,7 @@ class AhrsManager():
         print('stop cal', self.acc_bias.T)
 
     def readIMUnode(self, timeout = 0):
-        packets = self.node.getDataPackets(timeout)
+        packets = self.node.getDataPackets(timeout, maxPackets = 1)
         microstrainData = []
         # print("found", len(packets), "packets")
         for packet in packets:
