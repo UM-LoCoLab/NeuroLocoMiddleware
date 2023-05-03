@@ -137,9 +137,11 @@ class AhrsManager():
         self.x_forget = .01
         print('stop cal', self.acc_bias.T)
 
-    def readIMUnode(self, timeout = 0):
-        packets = self.node.getDataPackets(timeout, maxPackets = 1)
-        microstrainData = []
+    def readIMUnode(self, timeout = 0, maxPackets = 0):
+        packets = self.node.getDataPackets(timeout, maxPackets)
+        # if maxPackets != 0:
+        #     self.node.getDataPackets(timeout = 0, maxPackets = 0)
+        microstrainData = [] 
         # print("found", len(packets), "packets")
         for packet in packets:
             microstrainDatum = dict()
