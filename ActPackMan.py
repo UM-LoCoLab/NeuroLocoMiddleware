@@ -86,7 +86,7 @@ class ActPackMan(object):
         self.Igains_ff = 0
 
         # Instantiate Thermal Model
-        self.thermal_model = ThermalMotorModel(temp_limit_windings=80, soft_border_C_windings=10, temp_limit_case=70, soft_border_C_case=10)
+        self.thermal_model = ThermalMotorModel(temp_limit_windings=70, soft_border_C_windings=10, temp_limit_case=60, soft_border_C_case=10)
         self.torqueThermalScaling = 0
         self.enableThermalTorqueThrottling = enableThermalTorqueThrottling
 
@@ -154,8 +154,8 @@ class ActPackMan(object):
 
         # Update thermal model
         self.thermal_model.T_c = self.σ
-        self.torqueThermalScaling = self.thermal_model.update_and_get_scale(self.dt, self.i, FOS=1.5)
-
+        self.torqueThermalScaling = self.thermal_model.update_and_get_scale(self.dt, self.i, FOS=1.0)
+ 
         # Automatically save all the data as a csv file
         if self.csv_file_name is not None:
             self.csv_writer.writerow([time.time()]+[getattr(self.act_pack,x) for x in self.vars_to_log])
@@ -249,7 +249,13 @@ class ActPackMan(object):
         Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/NM_PER_AMP
         # K_Nm_per_rad = torque_Nm/(RAD_PER_CLICK*delta) = 0.146*1e-3*C*K/RAD_PER_CLICK
         # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
-        self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit, B=B*Nm_s_per_rad_to_Bunit, ff=ff)
+
+        # Scale commanded impedance parameters based on thermal model
+        if self.enableThermalTorqueThrottling:
+            thermalScale = self.torqueThermalScaling
+        else:
+            thermalScale = 1.0
+        self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit*thermalScale, B=B*Nm_s_per_rad_to_Bunit*thermalScale, ff=ff)
 
     def set_output_impedance_gains_real_unit_kb(self, kp=40, ki=400, K=0.08922, B=0.0038070, ff=128):
         """
