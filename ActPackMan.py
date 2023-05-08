@@ -52,7 +52,6 @@ DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackState.p
 MOTOR_CLICKS_PER_REVOLUTION = 16384 
 RAD_PER_SEC_PER_GYRO_LSB = np.pi/180/32.8
 G_PER_ACCELEROMETER_LSB = 1./8192
-NM_PER_AMP = 0.146
 RAD_PER_CLICK = 2*np.pi/MOTOR_CLICKS_PER_REVOLUTION
 RAD_PER_DEG = np.pi/180.
 ticks_to_motor_radians = lambda x: x*(np.pi/180./45.5111)
@@ -71,7 +70,7 @@ class ActPackMan(object):
     """
     
     def __init__(self, devttyACMport, baudRate=230400, csv_file_name=None,
-        hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, gear_ratio=1.0,
+        hdf5_file_name=None, vars_to_log=DEFAULT_VARIABLES, nm_per_amp = 0.146, gear_ratio=1.0,
         printingRate = 10, updateFreq = 100, shouldLog = False, logLevel=6):
         """ Intializes variables, but does not open the stream. """
 
@@ -81,6 +80,7 @@ class ActPackMan(object):
         self.logLevel = logLevel
         self.prevReadTime = time.time()-1/self.updateFreq
         self.gear_ratio = gear_ratio
+        self.nm_per_amp = nm_per_amp
 
         # self.varsToStream = varsToStream
         self.baudRate = baudRate
@@ -232,8 +232,8 @@ class ActPackMan(object):
         # This attempts to allow K and B gains to be specified in Nm/rad and Nm s/rad.
         A = 0.00028444
         C = 0.0007812
-        Nm_per_rad_to_Kunit = RAD_PER_CLICK/C*1e3/NM_PER_AMP
-        Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/NM_PER_AMP
+        Nm_per_rad_to_Kunit = RAD_PER_CLICK/C*1e3/self.nm_per_amp
+        Nm_s_per_rad_to_Bunit = RAD_PER_DEG/A*1e3/self.nm_per_amp
         # K_Nm_per_rad = torque_Nm/(RAD_PER_CLICK*delta) = 0.146*1e-3*C*K/RAD_PER_CLICK
         # B_Nm_per_rads = torque_Nm/(vel_deg_sec*RAD_PER_DEG) = 0.146*1e-3*A*B / RAD_PER_DEG
         self.set_impedance_gains_raw_unit_KB(kp=kp, ki=ki, K=K*Nm_per_rad_to_Kunit, B=B*Nm_s_per_rad_to_Bunit, ff=ff)
@@ -291,7 +291,7 @@ class ActPackMan(object):
         return self.act_pack.mot_acc # expects rad/s/s
 
     def get_motor_torque_newton_meters(self):
-        return self.get_current_qaxis_amps()*NM_PER_AMP
+        return self.get_current_qaxis_amps()*self.nm_per_amp
 
     def set_motor_angle_radians(self, pos):
         if self._state not in [_ActPackManStates.POSITION, _ActPackManStates.IMPEDANCE]:
@@ -306,7 +306,7 @@ class ActPackMan(object):
         raise NotImplemented() # potentially a way to specify position, impedance, or current commands.
 
     def set_motor_torque_newton_meters(self, torque):
-        return self.set_current_qaxis_amps(torque/NM_PER_AMP)
+        return self.set_current_qaxis_amps(torque/self.nm_per_amp)
 
     # output variables
 
