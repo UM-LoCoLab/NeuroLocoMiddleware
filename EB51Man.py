@@ -4,7 +4,6 @@ from ActPackMan import ActPackMan
 from SoftRealtimeLoop import SoftRealtimeLoop
 from ActPackMan import FlexSEA
 from ActPackMan import _ActPackManStates
-from ActPackMan import NM_PER_AMP
 from IIR2Filter import IIR2Filter
 import numpy as np
 import math
@@ -23,6 +22,7 @@ EB51_DEFAULT_VARIABLES = [ # struct fields defined in flexsea/dev_spec/ActPackSt
     "ank_ang"
 ]
 
+NM_PER_AMP = 0.146
 DORSI_TENSION_TORQUE = 0.05   # Apply small torque in dorsiflexion region to maintain belt tension
 MAX_CURRENT_AMPS = 15  
 MAX_MOTOR_TORQUE = MAX_CURRENT_AMPS * NM_PER_AMP
@@ -32,9 +32,11 @@ MAX_BATTERY_CURRENT_AMPS = 11
 
 class EB51Man(ActPackMan):
     def __init__(self, devttyACMport, whichAnkle, dt,
-    slack = 0.08, vars_to_log=EB51_DEFAULT_VARIABLES, **kwargs):
+    slack = 0.08, vars_to_log=EB51_DEFAULT_VARIABLES, csv_file_name = None, **kwargs):
 
-        super(EB51Man, self).__init__(devttyACMport, vars_to_log = vars_to_log, **kwargs)
+        super(EB51Man, self).__init__(devttyACMport, csv_file_name = csv_file_name, vars_to_log = vars_to_log, **kwargs)
+
+        self.csv_file_name = csv_file_name
 
         self.dt = dt
         if whichAnkle not in ['left', 'right']:
@@ -171,7 +173,7 @@ class EB51Man(ActPackMan):
         self.calibrationOffset = 0
         controller_state = self._state
 
-        winding_voltage = 0.8 
+        winding_voltage = 0.8
         if self.whichAnkle == 'right':
             winding_voltage = (-1) * winding_voltage 
         self.set_voltage_qaxis_volts(winding_voltage)
