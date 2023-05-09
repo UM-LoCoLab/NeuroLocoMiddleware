@@ -7,7 +7,7 @@ from os.path import realpath
 sys.path.append(r'/usr/share/python3-mscl/')    # Path of the MSCL)
 import traceback
 import mscl
-
+from StatProfiler import SSProfile
 
 
 class AhrsManager():
@@ -137,42 +137,98 @@ class AhrsManager():
         self.x_forget = .01
         print('stop cal', self.acc_bias.T)
 
-    def readIMUnode(self, timeout = 0, maxPackets = 0):
+    def readIMUnode(self, timeout = 0, maxPackets = 0, last_packet_only = False):
+        # SSProfile("Get IMU Data Packets").tic()
         packets = self.node.getDataPackets(timeout, maxPackets)
-        # if maxPackets != 0:
-        #     self.node.getDataPackets(timeout = 0, maxPackets = 0)
+        # SSProfile("Get IMU Data Packets").toc()
+
+        # SSProfile("Read Data Packets").tic() 
         microstrainData = [] 
-        # print("found", len(packets), "packets")
-        for packet in packets:
+        if len(packets) > 0 and last_packet_only == True:
+            packet = packets[-1]
+
             microstrainDatum = dict()
+            # SSProfile("Loop Through Datapoints").tic()
             for dataPoint in packet.data():
                 # print(dataPoint.channelName())
+                
                 if dataPoint.storedAs() == 0:
+                    # SSProfile("Datapoint 0").tic()
                     microstrainDatum[dataPoint.channelName()] = dataPoint.as_float()
+                    # SSProfile("Datapoint 0").toc()
                 
                 elif dataPoint.storedAs() == 3:
+                    # SSProfile("Datapoint 3").tic()
                     # print(dir(dataPoint))
                     # ts = dataPoint.as_Timestamp()
                     microstrainDatum[dataPoint.channelName()] = None
+                    # SSProfile("Datapoint 3").toc()
 
                 elif dataPoint.storedAs() == 1:
+                    # SSProfile("Datapoint 1").tic()
                     # print(dir(dataPoint))
                     ts = dataPoint.as_double()
                     microstrainDatum[dataPoint.channelName()] = ts
+                    # SSProfile("Datapoint 1").toc()
                     
                 elif dataPoint.storedAs() == 9:
+                    # SSProfile("Datapoint 9").tic()
                     mat = dataPoint.as_Matrix()
                     npmat = np.array([[mat.as_floatAt(i,j) for j in range(3)] for i in range(3)])
                     microstrainDatum[dataPoint.channelName()] = npmat
+                    # SSProfile("Datapoint 9").toc()
                 else:
                     print("no solution for datapoint stored as", dataPoint.storedAs(), dataPoint.channelName())
                     microstrainDatum[dataPoint.channelName()] = None
+
+                # SSProfile("Loop Through Datapoints").toc()
             microstrainData.append(microstrainDatum)
+        
+        else:
+            for packet in packets:
+                microstrainDatum = dict()
+                # SSProfile("Loop Through Datapoints").tic()
+                for dataPoint in packet.data():
+                    # print(dataPoint.channelName())
+                    
+                    if dataPoint.storedAs() == 0:
+                        # SSProfile("Datapoint 0").tic()
+                        microstrainDatum[dataPoint.channelName()] = dataPoint.as_float()
+                        # SSProfile("Datapoint 0").toc()
+                    
+                    elif dataPoint.storedAs() == 3:
+                        # SSProfile("Datapoint 3").tic()
+                        # print(dir(dataPoint))
+                        # ts = dataPoint.as_Timestamp()
+                        microstrainDatum[dataPoint.channelName()] = None
+                        # SSProfile("Datapoint 3").toc()
+
+                    elif dataPoint.storedAs() == 1:
+                        # SSProfile("Datapoint 1").tic()
+                        # print(dir(dataPoint))
+                        ts = dataPoint.as_double()
+                        microstrainDatum[dataPoint.channelName()] = ts
+                        # SSProfile("Datapoint 1").toc()
+                        
+                    elif dataPoint.storedAs() == 9:
+                        # SSProfile("Datapoint 9").tic()
+                        mat = dataPoint.as_Matrix()
+                        npmat = np.array([[mat.as_floatAt(i,j) for j in range(3)] for i in range(3)])
+                        microstrainDatum[dataPoint.channelName()] = npmat
+                        # SSProfile("Datapoint 9").toc()
+                    else:
+                        print("no solution for datapoint stored as", dataPoint.storedAs(), dataPoint.channelName())
+                        microstrainDatum[dataPoint.channelName()] = None
+
+                    # SSProfile("Loop Through Datapoints").toc()
+                microstrainData.append(microstrainDatum)
+        
+        # SSProfile("Read Data Packets").toc()
         return microstrainData
 
 
-
-
+    def getTotalPackets(self):
+        return self.node.totalPackets()
 
     def get_data(self):
         init_time = time.perf_counter_ns()
