@@ -86,7 +86,7 @@ class ActPackMan(object):
         self.Igains_ff = 0
 
         # Instantiate Thermal Model
-        self.thermal_model = ThermalMotorModel(temp_limit_windings=70, soft_border_C_windings=10, temp_limit_case=60, soft_border_C_case=10)
+        self.thermal_model = ThermalMotorModel(temp_limit_windings=80, soft_border_C_windings=10, temp_limit_case=70, soft_border_C_case=10)
         self.torqueThermalScaling = 0
         self.enableThermalTorqueThrottling = enableThermalTorqueThrottling
 
