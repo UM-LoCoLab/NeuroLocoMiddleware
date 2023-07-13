@@ -139,15 +139,18 @@ def from_poly_fraction(polyNum, polyDen, dt=0.01):
 	B[-1,0] = 1/polyDen[-1]
 	# x = 1 / (d0 + d1 s + d2 s^2 + ...) u
 	C = np.zeros((1,nx))
-	for i in range(nx):
+	for i in range(min(nx, len(polyNum))):
 		C[0,i]=polyNum[i]
 	if len(polyNum)==len(polyDen):
 		d = polyNum[-1]/polyDen[-1]
 		D = np.array([[d]])
 		C += d*A[-1:,:]*polyDen[-1]
+	else:
+		D = np.array([[0.0]])
 		# y = nq/dq u + (n0 - d0 nq/dq + (n1 -d1 nq/dq)s +...+ (nq - dq nq/dq)s^q)/(d0 + d1 s +...+ dq s^q)u
 	x0 = np.zeros((nx,1))
 	return LinearFilter(A,B,C,D,x0,dt=dt)
+
 
 def BiQuad(ωn,ζn, ωd,ζd):
 	ωn*=2*np.pi
