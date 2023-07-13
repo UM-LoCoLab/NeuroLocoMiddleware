@@ -192,8 +192,10 @@ class ActPackMan(object):
         # If this is a new entry into current control, reset values to prevent nonsense
         if self._state != _ActPackManStates.CURRENT:
             self.set_voltage_qaxis_volts(0.0)
+            time.sleep(0.1)
             self._state=_ActPackManStates.CURRENT
             self.device.set_gains(kp, ki, 0, 0, 0, ff)
+            time.sleep(0.1)
             self.set_current_qaxis_amps(0.0)
         else:
             self.device.set_gains(kp, ki, 0, 0, 0, ff)
@@ -222,9 +224,11 @@ class ActPackMan(object):
         if self._state != _ActPackManStates.IMPEDANCE:
             # Quickly set voltage to 0 as we change modes
             self.set_voltage_qaxis_volts(0.0)
+            time.sleep(0.1)
 
             # Write new gains
             self.device.set_gains(int(kp), int(ki), 0, int(K), int(B), int(ff))
+            time.sleep(0.1)
             
             # Update internal mode flag
             self._state=_ActPackManStates.IMPEDANCE
