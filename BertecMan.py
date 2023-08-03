@@ -9,6 +9,7 @@ import numpy as np
 class Bertec:
     """
     A class for reading Bertec speed and incline over the network 
+    On the Bertec GUI, under Settings, make sure "Remote Control" is enabled
     Katharine Walters 08/23
     """
     def __init__(self, viconPC_IP = '141.212.77.30', viconPC_BertecPort = 4000):
@@ -45,10 +46,12 @@ class Bertec:
             data = list(packet)
             belt_speedR = ((data[1]<<8) + data[2])/1000
             belt_speedL = ((data[3]<<8) + data[4])/1000
+            if (belt_speedR > 5) | (belt_speedL > 5): # Correct for negative belt speed
+                belt_speedR = (((data[1] - 256)<<8) + data[2])/1000
+                belt_speedL = (((data[3] - 256)<<8) + data[4])/1000
             self.belt_speed = [belt_speedL, belt_speedR]
             self.incline = ((data[9]<<8) + data[10])/100
             
-
     def get_treadmill_incline(self):
         # Read treadmill incline 
         return self.incline
@@ -67,11 +70,12 @@ if __name__ == '__main__':
     for t in loop: 
         i = i + 1
         t_curr = time.time() - t0
+
         speedL, speedR = bertec.get_belt_speed()
         incline = bertec.get_treadmill_incline()
 
         if i >=10:
             i = 0
-            print("time ", t_curr, " speed ", speedL, " ", speedR, " incline ", incline)
+            print("time ", t_curr, " speedL ", speedL, " speedR ", speedR, " incline ", incline)
     
     bertec.stop()
