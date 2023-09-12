@@ -310,7 +310,11 @@ class ActPackMan(object):
     def set_current_qaxis_amps(self, current_q):
         if self._state != _ActPackManStates.CURRENT:
             raise RuntimeError("Motor must be in current mode to accept a current command")
-        self.device.send_motor_command(fxe.FX_CURRENT, int(current_q*1000.0))
+        if self.enableThermalTorqueThrottling:
+            thermalScale = self.torqueThermalScaling
+        else:
+            thermalScale = 1.0
+        self.device.send_motor_command(fxe.FX_CURRENT, int(current_q*1000.0 * thermalScale))
 
 
     # motor-side variables
