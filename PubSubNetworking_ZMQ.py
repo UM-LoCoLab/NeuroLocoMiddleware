@@ -8,6 +8,7 @@ Requires pyzmq
 Kevin Best, 8/17/2023
 """
 import zmq
+from NeuroLocoMiddleware.StatProfiler import SSProfile
 
 class Subscriber():
     def __init__(self, publisher_ip = 'localhost', publisher_port = "5556", 
@@ -41,17 +42,17 @@ class Subscriber():
         return topic_decoded, message_decoded, msg_received
 
 
-
 class Publisher():
     """ 
     Instantiates a publisher object. Only required input is a port. Any subscriber on the network can subscribe to this topic via the IP address of the publisher. 
     """
     def __init__(self, port = "5556") -> None:
-        context = zmq.Context()
-        self.socket = context.socket(zmq.PUB)
+        self.context = zmq.Context()
+        self.socket = self.context.socket(zmq.PUB)
 
         self.socket.bind("tcp://*:%s" % port)
-        
+
+    @SSProfile("publish").decorate
     def publish(self, topic, message) -> None:
         """
         Publish a message on a specified topic. Note that topic names CANNOT have spaces in them. 
