@@ -39,7 +39,7 @@ class Bertec:
 
     Modified 11/1/2023 to also track distance and elevation. - Kevin Best
     """
-    def __init__(self, viconPC_IP = '141.212.77.30', viconPC_BertecPort = 4000):
+    def __init__(self, viconPC_IP = '127.0.0.1', viconPC_BertecPort = 4000):
         self.destinationIP = viconPC_IP
         self.destinationPort = viconPC_BertecPort
 
@@ -56,6 +56,8 @@ class Bertec:
         # Instantiate trapezoidal integrators to keep track of 
         self._distance_integrator = TrapezoidalIntegrator(self._calculate_absolute_velocity())
         self._elevation_integrator = TrapezoidalIntegrator(self._calculate_vertical_velocity())
+
+        print("Bertec connection initialized")
 
     def start(self):
         self.thread.start()
@@ -187,8 +189,8 @@ def getPayload(speedR, speedL, accR = 0.2, accL = 0.2, incline = 0):
 
 
 if __name__ == '__main__':
-    # bertec = Bertec()
-    # bertec.start()
+    bertec = Bertec()
+    bertec.start()
 
     # i = 0
     # loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
