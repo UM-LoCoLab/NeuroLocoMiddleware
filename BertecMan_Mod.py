@@ -3,6 +3,7 @@ from time import time
 from SoftRealtimeLoop import SoftRealtimeLoop
 from threading import Thread
 import numpy as np
+import struct
 
 class TrapezoidalIntegrator:
     """
@@ -124,10 +125,9 @@ class Bertec:
         fullPayload = [format, *aux, *secCheck, *padding]
 
         # Send packet
+        packed_data = struct.pack('B' * len(fullPayload), *fullPayload)
+        self.sock.sendall(packed_data)
 
-
-
-        
 
     @property
     def distance(self):
@@ -192,8 +192,7 @@ if __name__ == '__main__':
     bertec = Bertec()
     bertec.start()
 
-    speedL, speedR = bertec.get_belt_speed()
-    print(speedL, speedR)
+    bertec._write_command(0.3, 0.3)
     # i = 0
     # loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
     # for t in loop: 
