@@ -206,9 +206,4 @@ if __name__ == '__main__':
     #               " distance ", bertec.distance, " elevation ", bertec.elevation,
     #               end='\r')
     
-    # bertec.stop()
-
-    # byteVec = int16toBytes([400, 400, 0, 0, 200, 200, 0, 0, 0])
-    # print(byteVec)
-
-    getPayload(0.4, 0.4)
+    bertec.stop()
