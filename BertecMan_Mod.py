@@ -192,18 +192,20 @@ if __name__ == '__main__':
     bertec = Bertec()
     bertec.start()
 
-    i = 0
-    loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
-    for t in loop: 
-        i = i + 1
-        speedL, speedR = bertec.get_belt_speed()
-        incline = bertec.get_treadmill_incline()
+    speedL, speedR = bertec.get_belt_speed()
+    print(speedL, speedR)
+    # i = 0
+    # loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
+    # for t in loop: 
+    #     i = i + 1
+    #     speedL, speedR = bertec.get_belt_speed()
+    #     incline = bertec.get_treadmill_incline()
 
-        if i >=10:
-            i = 0
-            print("time ", t, " speedL ", speedL, 
-                  " speedR ", speedR, " incline ", incline, 
-                  " distance ", bertec.distance, " elevation ", bertec.elevation,
-                  end='\r')
+    #     if i >=10:
+    #         i = 0
+    #         print("time ", t, " speedL ", speedL, 
+    #               " speedR ", speedR, " incline ", incline, 
+    #               " distance ", bertec.distance, " elevation ", bertec.elevation,
+    #               end='\r')
             
     bertec.stop()
