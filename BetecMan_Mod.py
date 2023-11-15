@@ -205,5 +205,6 @@ if __name__ == '__main__':
     #               " speedR ", speedR, " incline ", incline, 
     #               " distance ", bertec.distance, " elevation ", bertec.elevation,
     #               end='\r')
-    
+
     bertec.stop()
+    print("Bertec closed")
