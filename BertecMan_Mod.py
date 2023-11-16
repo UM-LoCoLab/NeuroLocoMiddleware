@@ -176,8 +176,7 @@ if __name__ == '__main__':
 
     bertec._write_command(0.3, 0.3)
     i = 0
-    loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
-    for t in loop: 
+    while i < 200:
         i = i + 1
         speedL, speedR = bertec.get_belt_speed()
         incline = bertec.get_treadmill_incline()
@@ -188,5 +187,7 @@ if __name__ == '__main__':
                   " speedR ", speedR, " incline ", incline, 
                   " distance ", bertec.distance, " elevation ", bertec.elevation,
                   end='\r') 
+            
+    time.sleep(0.1)
             
     bertec.stop()
