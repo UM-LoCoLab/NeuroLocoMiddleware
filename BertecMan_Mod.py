@@ -183,7 +183,7 @@ if __name__ == '__main__':
 
         if i >=10:
             i = 0
-            print("time ", t, " speedL ", speedL, 
+            print(" speedL ", speedL, 
                   " speedR ", speedR, " incline ", incline, 
                   " distance ", bertec.distance, " elevation ", bertec.elevation,
                   end='\r') 
