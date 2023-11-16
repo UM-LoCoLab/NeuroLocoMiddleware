@@ -1,3 +1,9 @@
+"""
+This is the modified version of BertecMan.py used on Windows tablet. The SoftRealtimeLoop is 
+no longer usable on Windows.
+Jiefu Zhang 11/23
+"""
+
 import socket
 from time import time
 from SoftRealtimeLoop import SoftRealtimeLoop
@@ -179,8 +185,7 @@ if __name__ == '__main__':
         i = i + 1
         speedL, speedR = bertec.get_belt_speed()
         incline = bertec.get_treadmill_incline()
-
-        bertec._write_command(0.1*(i%5), 0.1*(i%5))
+        bertec._write_command(0.5, 0.5)  
         if i >=10:
             i = 0
             print(" speedL ", speedL, 
