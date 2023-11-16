@@ -113,8 +113,8 @@ class Bertec:
         speedL = speedL*1000        # Speed in mm/s
         speedR = speedR*1000
 
-        maxVel = 3000       # Max speed 3.0 m/s
-        minVel = -3000
+        maxVel = 1800       # Max speed 1.8 m/s, do not allow reverse
+        minVel = 0
 
         # Speed range check
         speedL = min(maxVel, max(minVel, speedL))
