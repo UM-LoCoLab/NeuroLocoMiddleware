@@ -174,13 +174,13 @@ if __name__ == '__main__':
     bertec = Bertec()
     bertec.start()
 
-    bertec._write_command(0.3, 0.3)
     i = 0
     while i < 200:
         i = i + 1
         speedL, speedR = bertec.get_belt_speed()
         incline = bertec.get_treadmill_incline()
 
+        bertec._write_command(0.1*(i%5), 0.1*(i%5))
         if i >=10:
             i = 0
             print(" speedL ", speedL, 
