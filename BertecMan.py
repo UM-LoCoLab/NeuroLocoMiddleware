@@ -117,6 +117,54 @@ class Bertec:
         self._distance_integrator.reset()
         self._elevation_integrator.reset()
 
+    def _write_command(self, speedR, speedL, incline = 0, accR = 0.2, accL = 0.2):
+        """
+        Write speed to treadmill. Code adoptted from MATLAB Bertec GUI 
+        at https://github.com/UM-LoCoLab/SelfPacedTMVicon
+        """
+
+        speedL = speedL*1000        # Speed in mm/s
+        speedR = speedR*1000
+
+        maxVel = 3000       # Max speed 3.0 m/s
+        minVel = -3000
+
+        # Speed range check
+        speedL = min(maxVel, max(minVel, speedL))
+        speedR = min(maxVel, max(minVel, speedR))
+
+        accR = accR*1000   # Acceleration in mm/s^2
+        accL = accL*1000
+
+        # Formating packet payload 
+        format = 0
+        speedLL = 0
+        speedRR = 0
+        accRR = 0
+        accLL = 0
+
+        aux = int16toBytes([speedR, speedL, speedRR, speedLL, accR, accL, accRR, accLL, incline])
+        secCheck = 255*np.ones((len(aux), ), dtype=int) - aux
+        padding = np.zeros((27, ), dtype=int)
+        fullPayload = [format, *aux, *secCheck, *padding]
+
+        # Send packet
+        packed_data = struct.pack('B' * len(fullPayload), *fullPayload)
+        self.sock.sendall(packed_data)
+
+def int16toBytes(intVec):
+    """
+    A function that converts a vector of int16 (N*1) to a vector of bytes of twice the length (2N*1). 
+    Jiefu Zhang 11/23
+    """
+    byteVec = []
+    for int16Data in intVec:
+        data = round(int16Data)
+        dataInByte = data.to_bytes(2, byteorder='big')
+        aux = [dataInByte[0], dataInByte[1]]    
+        byteVec.extend(aux)
+    return byteVec
+
 
 if __name__ == '__main__':
     bertec = Bertec()

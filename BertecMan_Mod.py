@@ -39,6 +39,8 @@ class Bertec:
     Katharine Walters 08/23
 
     Modified 11/1/2023 to also track distance and elevation. - Kevin Best
+
+    Modified 11/15/2023 to write speed commands to treadmill. - Jiefu Zhang
     """
     def __init__(self, viconPC_IP = '127.0.0.1', viconPC_BertecPort = 4000):
         self.destinationIP = viconPC_IP
@@ -97,7 +99,10 @@ class Bertec:
         return np.abs(np.mean(self.belt_speed))
     
     def _write_command(self, speedR, speedL, incline = 0, accR = 0.2, accL = 0.2):
-        # Write speed to treadmill. Code adoptted from MATLAB GUI
+        """
+        Write speed to treadmill. Code adoptted from MATLAB Bertec GUI 
+        at https://github.com/UM-LoCoLab/SelfPacedTMVicon
+        """
 
         speedL = speedL*1000        # Speed in mm/s
         speedR = speedR*1000
@@ -153,6 +158,10 @@ class Bertec:
         self._elevation_integrator.reset()
 
 def int16toBytes(intVec):
+    """
+    A function that converts a vector of int16 (N*1) to a vector of bytes of twice the length (2N*1). 
+    Jiefu Zhang 11/23
+    """
     byteVec = []
     for int16Data in intVec:
         data = round(int16Data)
@@ -161,38 +170,11 @@ def int16toBytes(intVec):
         byteVec.extend(aux)
     return byteVec
 
-def getPayload(speedR, speedL, accR = 0.2, accL = 0.2, incline = 0):
-    speedL = speedL*1000
-    speedR = speedR*1000
-
-    accR = accR*1000
-    accL = accL*1000    
-
-    incline = incline*100
-
-    format = 0
-    speedLL = 0
-    speedRR = 0
-
-    accRR = 0
-    accLL = 0
-
-    aux = int16toBytes([speedR, speedL, speedRR, speedLL, accR, accL, accRR, accLL, incline])
-    secCheck = 255*np.ones((len(aux), ), dtype=int) - aux
-    padding = np.zeros((27, ), dtype=int)
-    fullPayload = [format, *aux, *secCheck, *padding]
-    # print(fullPayload)
-    # print(len(fullPayload))
-    print(aux)
-    print(secCheck)
-    print(padding)
-
-
 if __name__ == '__main__':
     bertec = Bertec()
     bertec.start()
 
-    bertec._write_command(0.3, 0.3)
+    # bertec._write_command(0.3, 0.3)
     # i = 0
     # loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
     # for t in loop: 
