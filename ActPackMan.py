@@ -86,7 +86,7 @@ class ActPackMan(object):
         self.Igains_ff = 0
 
         # Instantiate Thermal Model
-        self.thermal_model = ThermalMotorModel(temp_limit_windings=90, soft_border_C_windings=10, temp_limit_case=70, soft_border_C_case=10)
+        self.thermal_model = ThermalMotorModel(temp_limit_windings=100, soft_border_C_windings=10, temp_limit_case=85, soft_border_C_case=10)
         self.torqueThermalScaling = 0
         self.enableThermalTorqueThrottling = enableThermalTorqueThrottling
 
@@ -147,8 +147,8 @@ class ActPackMan(object):
             raise RuntimeError("ActPackMan updated before __enter__ (which begins the streaming)")
         currentTime = time.time()
         self.dt =  currentTime-self.prevReadTime
-        if abs(self.dt)<0.25/self.updateFreq:
-            print("warning: re-updating twice in less than a quarter of a time-step")
+        # if abs(self.dt)<0.25/self.updateFreq:
+            # print("warning: re-updating twice in less than a quarter of a time-step")
         self.act_pack = self.device.read() # a c-types struct
         self.prevReadTime = currentTime
 
