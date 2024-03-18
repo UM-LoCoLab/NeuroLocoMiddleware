@@ -44,9 +44,13 @@ class Bertec:
         self.destinationIP = viconPC_IP
         self.destinationPort = viconPC_BertecPort
 
+        print("Attempting to connect to socket")
+
         # Setup TCP
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
         self.sock.connect((self.destinationIP, self.destinationPort))
+
+        print("Successfully connected to socket")
 
         self.thread = Thread(target=self._update, args = ())
         self.stopped = False
