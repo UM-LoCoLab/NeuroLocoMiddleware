@@ -91,7 +91,7 @@ class AhrsManager():
             )
 
     def update(self):
-        t0=time.time()
+        t0=time.monotonic()
 
         microstrainData = self.readIMUnode(timeout=0)# 0ms
         # print([microstrainDatum.keys() for microstrainDatum in microstrainData ])
@@ -112,9 +112,9 @@ class AhrsManager():
                 self.x += (self.xd - self.x_forget * self.x)* self.dt
         # self.R = self.readIMUnode()['orientMatrix']
         # self.R= np.eye(3)
-        dur = time.time()-t0
+        dur = time.monotonic()-t0
         if self.save_csv:
-            self.csv_writer.writerow([time.time()
+            self.csv_writer.writerow([time.monotonic()
                 , self.R[0,0], self.R[0,1], self.R[0,2]
                 , self.R[1,0], self.R[1,1], self.R[1,2]
                 , self.R[2,0], self.R[2,1], self.R[2,2]
@@ -123,13 +123,13 @@ class AhrsManager():
         return 1
 
     def start_cal(self):
-        self.t0=time.time()
+        self.t0=time.monotonic()
         self.xd = np.zeros((3,1))
         self.x = np.zeros((3,1))
         print('start cal')
 
     def stop_cal(self):
-        cal_time = time.time()-self.t0
+        cal_time = time.monotonic()-self.t0
         self.acc_bias = -self.xd/cal_time
         self.xd = np.zeros((3,1))
         self.x = np.zeros((3,1))
