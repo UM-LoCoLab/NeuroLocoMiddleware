@@ -3,6 +3,9 @@ from time import time
 from SoftRealtimeLoop import SoftRealtimeLoop
 from threading import Thread
 import numpy as np
+import struct
+
+BERTEC_MAX_VEL = 3000 # Treadmill max velocity is 3 m/s
 
 class TrapezoidalIntegrator:
     """
@@ -61,6 +64,8 @@ class Bertec:
         # Instantiate trapezoidal integrators to keep track of 
         self._distance_integrator = TrapezoidalIntegrator(self._calculate_absolute_velocity())
         self._elevation_integrator = TrapezoidalIntegrator(self._calculate_vertical_velocity())
+
+        print("Bertec connection initialized")
 
     def start(self):
         self.thread.start()
@@ -121,7 +126,7 @@ class Bertec:
         self._distance_integrator.reset()
         self._elevation_integrator.reset()
 
-    def _write_command(self, speedR, speedL, incline = 0, accR = 0.2, accL = 0.2):
+    def _write_command(self, speedR, speedL, incline = 0, accR = 0.2, accL = 0.2, maxVel = BERTEC_MAX_VEL, minVel = -BERTEC_MAX_VEL):
         """
         Write speed to treadmill. Code adoptted from MATLAB Bertec GUI 
         at https://github.com/UM-LoCoLab/SelfPacedTMVicon
@@ -129,9 +134,6 @@ class Bertec:
 
         speedL = speedL*1000        # Speed in mm/s
         speedR = speedR*1000
-
-        maxVel = 3000       # Max speed 3.0 m/s
-        minVel = -3000
 
         # Speed range check
         speedL = min(maxVel, max(minVel, speedL))
@@ -175,17 +177,18 @@ if __name__ == '__main__':
     bertec.start()
 
     i = 0
-    loop = SoftRealtimeLoop(dt = 1/100, report=True, fade=0.01)
-    for t in loop: 
+    while i < 200:
         i = i + 1
         speedL, speedR = bertec.get_belt_speed()
         incline = bertec.get_treadmill_incline()
-
+        bertec._write_command(0.5, 0.5)  
         if i >=10:
             i = 0
-            print("time ", t, " speedL ", speedL, 
+            print(" speedL ", speedL, 
                   " speedR ", speedR, " incline ", incline, 
                   " distance ", bertec.distance, " elevation ", bertec.elevation,
-                  end='\r')
-    
+                  end='\r') 
+            
+    time.sleep(0.1)
+            
     bertec.stop()
