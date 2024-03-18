@@ -2,7 +2,6 @@ import socket
 from random import randint
 from time import sleep
 
-
 class Vicon:
     """
     A class for managing starting and stopping Vicon recordings
@@ -11,7 +10,9 @@ class Vicon:
     See this page for more info: https://docs.vicon.com/display/Nexus213/Automatically+start+and+stop+capture
     Kevin Best 10/22
     """
-    def __init__(self, viconPC_IP = '141.212.77.16', viconPC_port = 30,
+    # Local hostname: ROB-ROUSE-VICON.adsroot.itcs.umich.edu
+    # IP address: 141.212.77.30
+    def __init__(self, viconPC_IP = '141.212.77.30', viconPC_port = 30,
                 viconPath = 'E:'):
 
         self.destinationIP = viconPC_IP
