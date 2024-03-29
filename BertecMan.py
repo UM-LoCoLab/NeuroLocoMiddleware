@@ -42,6 +42,8 @@ class Bertec:
     Katharine Walters 08/23
 
     Modified 11/1/2023 to also track distance and elevation. - Kevin Best
+
+    WARNING: Only one Pi can connect at a time - Katharine Walters, 03/29/2024
     """
     def __init__(self, viconPC_IP = '141.212.77.30', viconPC_BertecPort = 4000):
         self.destinationIP = viconPC_IP
