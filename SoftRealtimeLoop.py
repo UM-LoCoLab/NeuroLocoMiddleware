@@ -15,6 +15,7 @@ import signal
 import time
 import asyncio
 from math import sqrt
+import heapq
 # print(dir(asyncio))
 # print(asyncio.__name__)
 # exit()
@@ -82,6 +83,7 @@ class SoftRealtimeLoop(object):
     self.sleep_t_agg = 0.0
     self.n = 0
     self.report=report
+    self.max_errors = [0.0, 0.0, 0.0, 0.0, 0.0]
 
   def __del__(self):
     if self.report:
@@ -89,6 +91,7 @@ class SoftRealtimeLoop(object):
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
       print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/self.time()*100.))
+      print('\tfive max cycle errors: %.3f, %.3f, %.3f, %.3f, %.3f milliseconds'% (1e3*self.max_errors[0], 1e3*self.max_errors[1], 1e3*self.max_errors[2], 1e3*self.max_errors[3], 1e3*self.max_errors[4]))
 
   @property
   def fade(self):
@@ -155,6 +158,14 @@ class SoftRealtimeLoop(object):
     self.sum_var += error**2
     self.n+=1
     self.ttarg+=self.dt
+
+    # Check if error is greater than the minimum error in the list of max errors
+    if error > self.max_errors[0]:
+      heap = self.max_errors + [error]
+      heapq.heapify(heap)
+      heapified_heap = [heapq.heappop(heap) for _ in range(len(heap))]
+      self.max_errors = heapified_heap[1:]
+
     return self.t1-self.t0
 
 
