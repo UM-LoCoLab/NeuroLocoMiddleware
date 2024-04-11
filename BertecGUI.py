@@ -8,7 +8,6 @@ from kivy.clock import Clock
 
 from datetime import datetime
 from BertecMan import Bertec
-from logger import Logger
 from ViconMan import Vicon
 
 from typing import Any, Callable, List, Union
@@ -84,14 +83,14 @@ class BertecGUI(KivyApp):
                    size =(32, 32),
                    size_hint =(1, 1))
         
-        pause_button = Button(text ="Pause \n Test",
+        pause_button = Button(text ="{}\n{}".format("Pause", "Timed Test"),
                    font_size ="30sp",
                    background_color =(0/255,0/255, 0/255, 1),
                    color =(1, 1, 1, 1),
                    size =(32, 32),
                    size_hint =(1, 1))
         
-        stop_button = Button(text ="Stop \n Treadmill",
+        stop_button = Button(text ="{}\n{}".format("Stop", "Treadmill"),
                    font_size ="40sp",
                    background_color =(0/255,0/255, 0/255, 1),
                    color =(1, 1, 1, 1),
