@@ -128,11 +128,14 @@ class Bertec:
         self._distance_integrator.reset()
         self._elevation_integrator.reset()
 
-    def _write_command(self, speedR, speedL, incline = 0, accR = 0.2, accL = 0.2, maxVel = BERTEC_MAX_VEL, minVel = -BERTEC_MAX_VEL):
+    def _write_command(self, speedR, speedL, incline = None, accR = 0.2, accL = 0.2, maxVel = BERTEC_MAX_VEL, minVel = -BERTEC_MAX_VEL):
         """
         Write speed to treadmill. Code adoptted from MATLAB Bertec GUI 
         at https://github.com/UM-LoCoLab/SelfPacedTMVicon
         """
+
+        if incline == None:
+            incline = self.incline
 
         speedL = speedL*1000        # Speed in mm/s
         speedR = speedR*1000
