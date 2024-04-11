@@ -11,6 +11,11 @@ from BertecMan import Bertec
 from logger import Logger
 from ViconMan import Vicon
 
+from typing import Any, Callable, List, Union
+import csv
+import logging
+from logging.handlers import RotatingFileHandler
+
 import time
 
 RECORD_VICON = False
@@ -44,7 +49,7 @@ class BertecGUI(KivyApp):
         self.bertecObj.start()
         print('Bertec communication set up')
 
-        self.log = Logger(log_name)
+        self.log = SelfPacedLogger(log_name)
         self.log.add_attributes(self, ['test_time','gui_time'])
         self.log.add_attributes(self.bertecObj, ['distance','speed'])
 
@@ -79,15 +84,15 @@ class BertecGUI(KivyApp):
                    size =(32, 32),
                    size_hint =(1, 1))
         
-        pause_button = Button(text ="Pause",
-                   font_size ="50sp",
+        pause_button = Button(text ="Pause \n Test",
+                   font_size ="30sp",
                    background_color =(0/255,0/255, 0/255, 1),
                    color =(1, 1, 1, 1),
                    size =(32, 32),
                    size_hint =(1, 1))
         
-        stop_button = Button(text ="Stop",
-                   font_size ="50sp",
+        stop_button = Button(text ="Stop \n Treadmill",
+                   font_size ="40sp",
                    background_color =(0/255,0/255, 0/255, 1),
                    color =(1, 1, 1, 1),
                    size =(32, 32),
@@ -187,6 +192,145 @@ class BertecGUI(KivyApp):
         self.bertecObj.write_command(newSpeed, newSpeed) 
 
         print("Speed changed from %.2f m/s, is now: %.2f m/s" % (speedAvg, newSpeed), end='\n')
+
+
+
+class SelfPacedLogger(logging.Logger):
+    """
+    Logger class is a class that logs attributes from a class to a csv file
+
+    Methods:
+        __init__(self, container: object, file_path: str, logger: logging.Logger = None) -> None
+        log(self) -> None
+    """
+
+    def __init__(
+        self,
+        file_path: str = "./osl",
+        log_format: str = "[%(asctime)s] %(levelname)s: %(message)s",
+    ) -> None:
+
+        self._file_path: str = file_path + ".log"
+
+        self._containers: list[Union[object, dict[Any, Any]]] = []
+        self._attributes: list[list[str]] = []
+
+        self._file = open(file_path + ".csv", "w", newline='')
+        self._writer = csv.writer(self._file)
+
+        self._log_levels = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL,
+        }
+
+        super().__init__(__name__)
+        self.setLevel(logging.DEBUG)
+
+        self._std_formatter = logging.Formatter(log_format)
+
+        self._file_handler = RotatingFileHandler(
+            filename=self._file_path,
+            mode="w",
+            maxBytes=0,
+            backupCount=10,
+        )
+        self._file_handler.setLevel(level=logging.DEBUG)
+        self._file_handler.setFormatter(fmt=self._std_formatter)
+
+        self._stream_handler = logging.StreamHandler()
+        self._stream_handler.setLevel(level=logging.INFO)
+        self._stream_handler.setFormatter(fmt=self._std_formatter)
+
+        self.addHandler(hdlr=self._stream_handler)
+        self.addHandler(hdlr=self._file_handler)
+
+        self._is_logging = False
+
+    def __repr__(self) -> str:
+        return f"Logger"
+
+    def set_file_level(self, level: str = "DEBUG") -> None:
+        """
+        Sets the level of the logger
+
+        Args:
+            level (str): Level of the logger
+        """
+        if level not in self._log_levels.keys():
+            self.warning(msg=f"Invalid logging level: {level}")
+
+        self._file_handler.setLevel(level=self._log_levels[level])
+
+    def set_stream_level(self, level: str = "INFO") -> None:
+        """
+        Sets the level of the logger
+
+        Args:
+            level (str): Level of the logger
+        """
+        if level not in self._log_levels.keys():
+            self.warning(msg=f"Invalid logging level: {level}")
+
+        self._stream_handler.setLevel(level=self._log_levels[level])
+
+    def add_attributes(
+        self, container, attributes
+    ) -> None:
+        """
+        Adds class instance and attributes to log
+
+        Args:
+            container (object, dict): Container can either be an object (instance of a class)
+                or a Dict containing the attributes to be logged.
+            attributes (list[str]): List of attributes to log
+        """
+        self._containers.append(container)
+        self._attributes.append(attributes)
+
+    def data(self) -> None:
+        """
+        Logs the attributes of the class instance to the csv file
+        """
+        header_data = []
+        data = []
+
+        if not self._is_logging:
+            for container, attributes in zip(self._containers, self._attributes):
+                for attribute in attributes:
+                    if type(container) is dict:
+                        if "__main__" in container.values():
+                            header_data.append(f"{attribute}")
+                        else:
+                            header_data.append(f"{container}:{attribute}")
+                    else:
+                        if type(container).__repr__ is not object.__repr__:
+                            header_data.append(f"{container}:{attribute}")
+                        else:
+                            header_data.append(f"{attribute}")
+
+            self._writer.writerow(header_data)
+            self._is_logging = True
+
+        for container, attributes in zip(self._containers, self._attributes):
+            if isinstance(container, dict):
+                for attribute in attributes:
+                    data.append(container.get(attribute))
+            else:
+                for attribute in attributes:
+                    data.append(getattr(container, attribute))
+
+        self._writer.writerow(data)
+        self._file.flush()
+
+    def close(self) -> None:
+        """
+        Closes the csv file
+        """
+        self._file.close()
+
 
 if __name__ == '__main__':
     print("Starting Bertec GUI")
