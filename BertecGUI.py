@@ -14,6 +14,7 @@ from ViconMan import Vicon
 import time
 
 RECORD_VICON = False
+TEST_DURATION = 60*6       # test duration in seconds
     
 class BertecGUI(KivyApp):
     """
@@ -24,7 +25,7 @@ class BertecGUI(KivyApp):
 
     Updated 04/2024 - Katharine Walters (update log name with timestamp, make Vicon optional)
     """    
-    def __init__(self, test_duration=60*6, log_name='log', record_vicon = False):
+    def __init__(self, test_duration=TEST_DURATION, log_name='log', record_vicon = RECORD_VICON):
         super().__init__()
         self.test_duration = test_duration
         self.log_name = log_name[2:-1]
@@ -193,5 +194,5 @@ if __name__ == '__main__':
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") 
     log_name = "./BertecSelfPacedTest_" + timestamp
 
-    bertecGUI = BertecGUI(log_name = log_name, record_vicon = RECORD_VICON)
+    bertecGUI = BertecGUI(log_name = log_name)
     bertecGUI.run()
