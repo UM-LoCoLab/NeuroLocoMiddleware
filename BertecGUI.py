@@ -25,7 +25,7 @@ class BertecGUI(KivyApp):
 
     Updated 04/2024 - Katharine Walters (update log name with timestamp, make Vicon optional)
     """    
-    def __init__(self, test_duration=TEST_DURATION, log_name='log', record_vicon = RECORD_VICON):
+    def __init__(self, test_duration=TEST_DURATION, log_name='log', record_vicon = RECORD_VICON, ip_address = '127.0.0.1'):
         super().__init__()
         self.test_duration = test_duration
         self.log_name = log_name[2:-1]
@@ -40,7 +40,7 @@ class BertecGUI(KivyApp):
         self.speed0 = 0.6   # Initial speed (m/s)
         self.acc = 0.25   # Acceleration (m/s^2)
 
-        self.bertecObj = Bertec()
+        self.bertecObj = Bertec(viconPC_IP = ip_address)
         self.bertecObj.start()
         print('Bertec communication set up')
 
