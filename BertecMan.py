@@ -114,6 +114,10 @@ class Bertec:
     def elevation(self):
         """Elevation gained since last reset in m."""
         return self._elevation_integrator.value
+    
+    @property
+    def speed(self):
+        return self._calculate_absolute_velocity()
 
     def get_treadmill_incline(self):
         # Read treadmill incline 
