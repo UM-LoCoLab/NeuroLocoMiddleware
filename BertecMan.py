@@ -136,11 +136,14 @@ class Bertec:
         """
         Write speed to treadmill. Code adoptted from MATLAB Bertec GUI 
         at https://github.com/UM-LoCoLab/SelfPacedTMVicon
+
+        Input speedL, speedR, accR, accL, and incline in m/s, m/s^2, and deg
         """
 
         if incline == None:
             incline = self.incline
 
+        incline = incline * 100
         speedL = speedL*1000        # Speed in mm/s
         speedR = speedR*1000
 
