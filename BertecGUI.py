@@ -19,6 +19,8 @@ import time
 
 RECORD_VICON = False
 TEST_DURATION = 60*6       # test duration in seconds
+DECLINE = False
+
     
 class BertecGUI(KivyApp):
     """
@@ -28,6 +30,8 @@ class BertecGUI(KivyApp):
     Updated 2024 - Kevin Best
 
     Updated 04/2024 - Katharine Walters (update log name with timestamp, make Vicon optional)
+
+    Updated 05/2024 - Katharine Walters (enabled self-paced decline walking) 
     """    
     def __init__(self, test_duration=TEST_DURATION, log_name='log', record_vicon = RECORD_VICON, ip_address = '127.0.0.1'):
         super().__init__()
@@ -41,7 +45,11 @@ class BertecGUI(KivyApp):
         self.completed = False
         self.record_vicon = record_vicon
 
-        self.speed0 = 0.6   # Initial speed (m/s)
+        self.direction = 1
+        if DECLINE:
+            self.direction = -1
+
+        self.speed0 = 0.6 * self.direction   # Initial speed (m/s)
         self.acc = 0.25   # Acceleration (m/s^2)
 
         self.bertecObj = Bertec(viconPC_IP = ip_address)
@@ -187,7 +195,7 @@ class BertecGUI(KivyApp):
         """direction \in {-1, 1} to say whether to increase or decrease speed. """
         speedL, speedR = self.bertecObj.get_belt_speed()         # TODO: The speed of bertec is not a constant
         speedAvg = (speedL + speedR) / 2
-        newSpeed = speedAvg + delta*direction
+        newSpeed = (abs(speedAvg) + delta*direction)*self.direction
         self.bertecObj.write_command(newSpeed, newSpeed) 
 
         print("Speed changed from %.2f m/s, is now: %.2f m/s" % (speedAvg, newSpeed), end='\n')

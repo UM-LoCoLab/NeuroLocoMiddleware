@@ -141,7 +141,7 @@ class Bertec:
         """
 
         if incline == None:
-            incline = self.incline
+            incline = abs(self.incline)
 
         incline = incline * 100
         speedL = speedL*1000        # Speed in mm/s
