@@ -178,7 +178,7 @@ def int16toBytes(intVec):
     byteVec = []
     for int16Data in intVec:
         data = round(int16Data)
-        dataInByte = data.to_bytes(2, byteorder='big')
+        dataInByte = data.to_bytes(2, byteorder='big', signed=True)
         aux = [dataInByte[0], dataInByte[1]]    
         byteVec.extend(aux)
     return byteVec
