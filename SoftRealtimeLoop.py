@@ -19,7 +19,7 @@ import heapq
 # print(dir(asyncio))
 # print(asyncio.__name__)
 # exit()
-PRECISION_OF_SLEEP = 0.0001 # microseconds
+PRECISION_OF_SLEEP = 0.0001 # seconds
 
 # Version of the SoftRealtimeLoop library
 __version__="1.0.0"
@@ -117,7 +117,7 @@ class SoftRealtimeLoop(object):
       print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
-      print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/self.time()*100.))
+      print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/time.monotonic()*100.))
       print('\tfive max cycle errors: %.3f, %.3f, %.3f, %.3f, %.3f milliseconds'% (1e3*self.max_errors[0], 1e3*self.max_errors[1], 1e3*self.max_errors[2], 1e3*self.max_errors[3], 1e3*self.max_errors[4]))
 
   @property
@@ -167,11 +167,13 @@ class SoftRealtimeLoop(object):
       raise StopIteration
 
     # Sleep the amount we need to satisfy the dt.
+    sleep_curr_loop = 0
     while time.monotonic()<self.t1-2*PRECISION_OF_SLEEP and not self.killer.kill_now:
       t_pre_sleep = time.monotonic()
       time.sleep(max(PRECISION_OF_SLEEP,self.t1-time.monotonic()-PRECISION_OF_SLEEP))
       # Update the time spent sleeping to calculate the sleep percentage
-      self.sleep_t_agg+=time.monotonic()-t_pre_sleep
+      sleep_curr_loop = time.monotonic()-t_pre_sleep
+      self.sleep_t_agg+=sleep_curr_loop
 
     # If we got any signals while we were sleeping, indicate that we 
     # should kill the loop
@@ -209,12 +211,10 @@ class SoftRealtimeLoop(object):
     # If the error exceeds the max error trigger value, either inform the 
     # user or kill the loop
     if abs(error) > self.max_error_trigger_value:
+      print(f"SoftRealTimeLoop: loop error {1e3*error:.3f} ms | time slept {sleep_curr_loop} | dt = {1e3*self.dt} ms")
       if self.max_error_trigger_kill:
         self.stop()
-      else:
-        print(f"SoftRealTimeLoop: Error in loop exceeded the"
-              f"max_error_trigger_value: {1e3*error:.3f} milliseconds")
-
+      
     return self.t1-self.t0
 
 
