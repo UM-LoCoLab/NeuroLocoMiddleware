@@ -19,7 +19,7 @@ import heapq
 # print(dir(asyncio))
 # print(asyncio.__name__)
 # exit()
-PRECISION_OF_SLEEP = 0.0001
+PRECISION_OF_SLEEP = 0.0001 # microseconds
 
 # Version of the SoftRealtimeLoop library
 __version__="1.0.0"
@@ -73,7 +73,31 @@ class LoopKiller:
       self._soft_kill_time = None
 
 class SoftRealtimeLoop(object):
-  def __init__(self, dt=0.001, report=False, fade=0.0):
+  def __init__(self, dt=0.001, report=False, fade=0.0, 
+               max_error_trigger_value: float = float('inf'), 
+               max_error_trigger_kill: bool = False,):
+    """
+    The SoftRealtimeLoop object is a class designed to allow perform smart
+    loops that can approximate a real time operating system. It also allows
+    clean exits from infinite loops with the potential for post-loop cleanup 
+    operations executing. You can also kill the loop if it exceeds a certain
+    error threshold.
+
+    Parameters
+    ----------
+    dt : float
+        The time step of the loop in seconds.
+    report : bool
+        If True, the loop will print a report at the end of the loop.
+    fade : float
+        The time in seconds to fade out the loop when it is killed.
+    max_error_trigger_value : float
+        The maximum error value in seconds that the loop can have before it is 
+        killed. The default value is infinity (i.e. it is never triggered).
+    max_error_trigger_kill : bool
+        If True, the loop will be killed if a loop error exceeds the max error. 
+        The default value is False. 
+    """
     self.t0 = self.t1 = time.monotonic()
     self.killer = LoopKiller(fade_time=fade)
     self.dt = dt
@@ -84,6 +108,9 @@ class SoftRealtimeLoop(object):
     self.n = 0
     self.report=report
     self.max_errors = [0.0, 0.0, 0.0, 0.0, 0.0]
+    # Max error trigger
+    self.max_error_trigger_value = max_error_trigger_value
+    self.max_error_trigger_kill = max_error_trigger_kill
 
   def __del__(self):
     if self.report:
@@ -134,37 +161,59 @@ class SoftRealtimeLoop(object):
     return self
 
   def __next__(self):
+
+    # If the loop is killed, raise a StopIteration
     if self.killer.kill_now:
       raise StopIteration
 
+    # Sleep the amount we need to satisfy the dt.
     while time.monotonic()<self.t1-2*PRECISION_OF_SLEEP and not self.killer.kill_now:
       t_pre_sleep = time.monotonic()
       time.sleep(max(PRECISION_OF_SLEEP,self.t1-time.monotonic()-PRECISION_OF_SLEEP))
+      # Update the time spent sleeping to calculate the sleep percentage
       self.sleep_t_agg+=time.monotonic()-t_pre_sleep
 
+    # If we got any signals while we were sleeping, indicate that we 
+    # should kill the loop
     while time.monotonic()<self.t1 and not self.killer.kill_now:
       if signal.sigtimedwait([signal.SIGTERM,signal.SIGINT,signal.SIGHUP], 0):
         self.stop()
+
+    # If the loop is killed while we were waiting, raise a StopIteration
     if self.killer.kill_now:
       raise StopIteration
+    
+    # Increase the dt naively based on the time that we should have slept
     self.t1+=self.dt
+    
+    # Initialize ttarg on first call
     if self.ttarg is None: 
-      # inits ttarg on first call
       self.ttarg = time.monotonic()+self.dt
       # then skips the first loop
       return self.t1-self.t0
+
+    # Calculate the error for the loop and update the max errors
     error = time.monotonic()-self.ttarg # seconds
     self.sum_err += error
     self.sum_var += error**2
     self.n+=1
     self.ttarg+=self.dt
 
-    # Check if error is greater than the minimum error in the list of max errors
+    # Update the max errors
     if error > self.max_errors[0]:
       heap = self.max_errors + [error]
       heapq.heapify(heap)
       heapified_heap = [heapq.heappop(heap) for _ in range(len(heap))]
       self.max_errors = heapified_heap[1:]
+
+    # If the error exceeds the max error trigger value, either inform the 
+    # user or kill the loop
+    if error > self.max_error_trigger_value:
+      if self.max_error_trigger_kill:
+        self.stop()
+      else:
+        print(f"SoftRealTimeLoop: Error in loop exceeded the"
+              f"max_error_trigger_value: {1e3*error:.3f} milliseconds")
 
     return self.t1-self.t0
 
