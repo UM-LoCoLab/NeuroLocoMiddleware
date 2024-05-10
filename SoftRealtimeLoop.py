@@ -208,7 +208,7 @@ class SoftRealtimeLoop(object):
 
     # If the error exceeds the max error trigger value, either inform the 
     # user or kill the loop
-    if error > self.max_error_trigger_value:
+    if abs(error) > self.max_error_trigger_value:
       if self.max_error_trigger_kill:
         self.stop()
       else:
