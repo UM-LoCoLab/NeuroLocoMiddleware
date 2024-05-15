@@ -11,7 +11,7 @@ from StatProfiler import SSProfile
 
 
 class AhrsManager():
-    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0", baud = 921600):
+    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0", baud = 921600, connection_mode = "USB"):
         self.port = realpath(port) # dereference symlinks
         self.save_csv = not (csv_file_name is None)
         self.csv_file_name = csv_file_name
@@ -29,6 +29,7 @@ class AhrsManager():
         self.acc_bias = np.zeros((3,1))
         self.lp_xdd = 0.0
         self.baud = baud
+        self.connection_mode = connection_mode  # Allowable arguments are "USB" or "RS232"
 
     def __enter__(self):
         if self.save_csv:
@@ -44,7 +45,8 @@ class AhrsManager():
 
         self.connection = mscl.Connection.Serial(self.port, self.baud)
         self.node = mscl.InertialNode(self.connection)
-        self.node.setToIdle()
+        if self.connection_mode == "USB":
+            self.node.setToIdle()
 
         time.sleep(0.05)
 
@@ -53,16 +55,17 @@ class AhrsManager():
         #Resume node for streaming
         # self.node.resume()
         #if the node supports AHRS/IMU
-        if self.node.features().supportsCategory(mscl.MipTypes.CLASS_AHRS_IMU):
-            self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU, True)
+        if self.connection_mode == "USB":
+            if self.node.features().supportsCategory(mscl.MipTypes.CLASS_AHRS_IMU):
+                self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU, True)
 
-        #if the self.node supports Estimation Filter
-        if self.node.features().supportsCategory(mscl.MipTypes.CLASS_ESTFILTER):
-            self.node.enableDataStream(mscl.MipTypes.CLASS_ESTFILTER)
+            #if the self.node supports Estimation Filter
+            if self.node.features().supportsCategory(mscl.MipTypes.CLASS_ESTFILTER):
+                self.node.enableDataStream(mscl.MipTypes.CLASS_ESTFILTER)
 
-        #if the self.node supports GNSS
-        if self.node.features().supportsCategory(mscl.MipTypes.CLASS_GNSS):
-            self.node.enableDataStream(mscl.MipTypes.CLASS_GNSS)
+            #if the self.node supports GNSS
+            if self.node.features().supportsCategory(mscl.MipTypes.CLASS_GNSS):
+                self.node.enableDataStream(mscl.MipTypes.CLASS_GNSS)
 
         # Clean the internal circular buffer. Select timeout to be 500ms
         # self.packets = self.node.getDataPackets(0)
@@ -75,7 +78,8 @@ class AhrsManager():
         """ Closes the file properly """
         if self.save_csv:
             self.csv_file.__exit__(etype, value, tb)
-        self.node.setToIdle()
+        if self.connection_mode == "USB":
+            self.node.setToIdle()
         if not (etype is None):
             traceback.print_exception(etype, value, tb)
 
@@ -251,7 +255,7 @@ class AhrsManager():
         return eulerAngles
 
 def main():
-    with AhrsManager(csv_file_name="test_ahrs.csv", port="/dev/ttyAhrsB") as am:
+    with AhrsManager(csv_file_name="test_ahrs.csv", port="/dev/ttyAhrsShank_L") as am:
         cal=False
         for i,t in enumerate(SoftRealtimeLoop(dt=1.0/200, report=True)):
             am.update()
