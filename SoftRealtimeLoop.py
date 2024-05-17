@@ -16,13 +16,22 @@ import time
 import asyncio
 from math import sqrt
 import heapq
+import os
+import sys
 # print(dir(asyncio))
 # print(asyncio.__name__)
 # exit()
-PRECISION_OF_SLEEP = 0.0001 # seconds
+
+# Calculate the precision of sleep. Python 3.11 has nanosecond sleep
+# Older versions have microsecond sleep
+python_version = sys.version_info.minor
+if python_version >= 11:
+  PRECISION_OF_SLEEP = 1e-9 
+else:
+  PRECISION_OF_SLEEP = 1e-6
 
 # Version of the SoftRealtimeLoop library
-__version__="1.0.0"
+__version__="2.0.0"
 
 class LoopKiller:
   def __init__(self, fade_time=0.0):
