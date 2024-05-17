@@ -173,9 +173,15 @@ class SoftRealtimeLoop(object):
       else:
         total_time = self.prev_loop_time-self.initial_time
       print('In %d cycles at %.2f Hz:'%(self.n, 1./self.dt))
+<<<<<<< HEAD
       print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/max(self.n,1)))
       print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/max(self.n,1))/(self.n-1))))
       print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/total_time*100.))
+=======
+      print('\tavg error: %.3f milliseconds'% (1e3*self.sum_err/self.n))
+      print('\tstddev error: %.3f milliseconds'% (1e3*sqrt((self.sum_var-self.sum_err**2/self.n)/(self.n-1))))
+      print('\tpercent of time sleeping: %.1f %%' % (self.sleep_t_agg/self.time()*100.))
+>>>>>>> bc23ad482873c54b99e5a1a3d49e0254fe939d35
       print('\tfive max cycle errors: %.3f, %.3f, %.3f, %.3f, %.3f milliseconds'% (1e3*self.max_errors[0], 1e3*self.max_errors[1], 1e3*self.max_errors[2], 1e3*self.max_errors[3], 1e3*self.max_errors[4]))
 
   @property
