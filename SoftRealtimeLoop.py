@@ -121,7 +121,7 @@ class SoftRealtimeLoop(object):
       higher priority can potentially starve other processes. Setting it to 
       false keeps the normal priority. Default value is false. 
     """
-    ## Original variables for the next_prev_loop_dependent method
+    ## Original variables for the next_track_naive_time method
     self.t0 = self.t1 = time.monotonic()
     self.ttarg = None 
     self.sleep_t_agg = 0.0
@@ -167,7 +167,7 @@ class SoftRealtimeLoop(object):
   def __del__(self):
     if self.report:
       # Calculate the total time you ran
-      if self.loop_dependent_mode:
+      if self.track_naive_time:
         total_time = self.t1-self.t0
       else:
         total_time = self.prev_loop_time-self.initial_time
@@ -192,8 +192,8 @@ class SoftRealtimeLoop(object):
   def __next__(self):
     """
     This is the main method that will be called when the SoftRealtimeLoop
-    object is used as an iterator. It will call the next_prev_loop_dependent
-    or next_prev_loop_independent method based on the loop_dependent_mode
+    object is used as an iterator. It will select the appropriate next 
+    method based on the self.track_naive_time variable.
     """
     if self.track_naive_time:
       return self._next_track_naive_time()
@@ -203,11 +203,12 @@ class SoftRealtimeLoop(object):
   def _next_track_dt(self):
     """
     This method will prioritize having a consistent dt over each loop iteration.
-    In contrast, the next_prev_loop_dependent method will attempt "catch up" 
+    In contrast, the next_track_naive_time method will attempt "catch up" 
     on time lost in previous loops by sleeping less in the current loop.
     
-    This is the default method for the SoftRealtimeLoop class.
-
+    This is not the default mode and neets to be enabled via setting 
+    track_naive_time parameter in the SoftRealtimeLoop initializer to False.
+    
     This object will return the time since the iterator object started.
     """
 
@@ -297,9 +298,6 @@ class SoftRealtimeLoop(object):
     by sleeping less in the current loop. In contrast, the
     next_prev_loop_independent method will prioritize having a consistent dt
     over each loop iteration.
-
-    This is not the default mode and neets to be enabled via the 
-    loop_dependent_mode parameter in the SoftRealtimeLoop initializer.
 
     This object will return the time that we should be running at (i.e. not
     the real time).
