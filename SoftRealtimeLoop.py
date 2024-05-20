@@ -255,7 +255,7 @@ class SoftRealtimeLoop(object):
       heapified_heap = [heapq.heappop(heap) for _ in range(len(heap))]
       self.max_errors = heapified_heap[1:]
     # If the error exceeds the max error trigger value
-    self.report_error(error,sleep_time)
+    self._report_error(error,sleep_time)
 
     # Calculate the time since the iterator object started
     time_since_start = current_time - self.initial_time
