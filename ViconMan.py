@@ -12,7 +12,7 @@ class Vicon:
     """
     # Local hostname: ROB-ROUSE-VICON.adsroot.itcs.umich.edu
     # IP address: 141.212.77.30
-    def __init__(self, viconPC_IP = '141.212.77.30', viconPC_port = 30,
+    def __init__(self, viconPC_IP = 'ROB-ROUSE-VICON.adsroot.itcs.umich.edu', viconPC_port = 30,
                 viconPath = 'E:'):
 
         self.destinationIP = viconPC_IP
