@@ -11,7 +11,7 @@ from StatProfiler import SSProfile
 
 
 class AhrsManager():
-    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0", baud = 921600, connection_mode = "USB"):
+    def __init__(self, csv_file_name=None, dt=0.01, port="/dev/ttyACM0", baud = 921600, communication_protocol = "USB"):
         self.port = realpath(port) # dereference symlinks
         self.save_csv = not (csv_file_name is None)
         self.csv_file_name = csv_file_name
@@ -29,7 +29,7 @@ class AhrsManager():
         self.acc_bias = np.zeros((3,1))
         self.lp_xdd = 0.0
         self.baud = baud
-        self.connection_mode = connection_mode  # Allowable arguments are "USB" or "RS232"
+        self.communication_protocol = communication_protocol  # Allowable arguments are "USB" or "RS232"
 
     def __enter__(self):
         if self.save_csv:
@@ -45,7 +45,7 @@ class AhrsManager():
 
         self.connection = mscl.Connection.Serial(self.port, self.baud)
         self.node = mscl.InertialNode(self.connection)
-        if self.connection_mode == "USB":
+        if self.communication_protocol == "USB":
             self.node.setToIdle()
 
         time.sleep(0.05)
@@ -55,7 +55,7 @@ class AhrsManager():
         #Resume node for streaming
         # self.node.resume()
         #if the node supports AHRS/IMU
-        if self.connection_mode == "USB":
+        if self.communication_protocol == "USB":
             if self.node.features().supportsCategory(mscl.MipTypes.CLASS_AHRS_IMU):
                 self.node.enableDataStream(mscl.MipTypes.CLASS_AHRS_IMU, True)
 
@@ -78,7 +78,7 @@ class AhrsManager():
         """ Closes the file properly """
         if self.save_csv:
             self.csv_file.__exit__(etype, value, tb)
-        if self.connection_mode == "USB":
+        if self.communication_protocol == "USB":
             self.node.setToIdle()
         if not (etype is None):
             traceback.print_exception(etype, value, tb)
