@@ -1,5 +1,8 @@
 """
-This module implements a publisher/subscriber networking protocol using ZMQ. Its development was motivated by the need to share timestamps between two python programs on different PCs. My current usage is to have the OSL as a publisher of its current log timestamp. A script on a Vicon PC will subscribe to that timestamp to embed sync behavior in a vicon log. 
+This module implements a publisher/subscriber networking protocol using ZMQ. 
+Its development was motivated by the need to share timestamps between two python programs on different PCs. 
+My current usage is to have the OSL as a publisher of its current log timestamp. 
+A script on a Vicon PC will subscribe to that timestamp to embed sync behavior in a vicon log. 
 
 See the test_sub() and test_pub() methods for example usages. 
 
@@ -8,7 +11,6 @@ Requires pyzmq
 Kevin Best, 8/17/2023
 """
 import zmq
-from NeuroLocoMiddleware.StatProfiler import SSProfile
 
 class Subscriber():
     def __init__(self, publisher_ip = 'localhost', publisher_port = "5556", 
@@ -29,6 +31,7 @@ class Subscriber():
     def get_message(self) -> (str, str, bool):
         """
         Checks for a message from the subscribed topics. If no message is available in the timeout, it'll return blank topic and message. The msg_received flag will also be false. 
+        Returns topic, message, msg_received flag
         """
         msg_received = self.socket.poll(self.timeout_ms)
         if msg_received == 0:
@@ -52,7 +55,6 @@ class Publisher():
 
         self.socket.bind("tcp://*:%s" % port)
 
-    @SSProfile("publish").decorate
     def publish(self, topic, message) -> None:
         """
         Publish a message on a specified topic. Note that topic names CANNOT have spaces in them. 
