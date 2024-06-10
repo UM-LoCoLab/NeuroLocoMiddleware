@@ -5,7 +5,7 @@ Objects for passing data between two real-time loops.
 # import zmq
 import socket
 import numpy as np
-from StatProfiler import StatProfiler
+from NeuroLocoMiddleware.StatProfiler import StatProfiler
 
 class UdpBase:
     def __init__(self, recv_IP, recv_port, send_IP, send_port, buff_size=1024):

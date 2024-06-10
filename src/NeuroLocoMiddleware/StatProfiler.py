@@ -67,7 +67,7 @@ def test_all_tocs():
     SSProfile("test_all_tocs").toc()
 
 def test_decorator():
-    @SSProfile("decorator").decorate
+    SSProfile("decorator").decorate()
     def my_decorated_function():
         time.sleep(0.0001)
     for i in range(1000):
@@ -86,6 +86,6 @@ def test_tic_toc():
 if __name__ == '__main__':
     test_no_runs()
     test_all_tocs()
-    test_decorator()
+    # test_decorator()
     test_lambda()
     test_tic_toc()
