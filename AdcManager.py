@@ -1,6 +1,7 @@
 import busio
 import board
 import adafruit_ads1x15.ads1115 as ADS
+from adafruit_ads1x15.ads1x15 import Mode
 from adafruit_ads1x15.analog_in import AnalogIn
 import csv
 import traceback
@@ -8,8 +9,8 @@ import time
 
 class AdcManager(object):
     def __init__(self, csv_file_name=None):
-        self.i2c = busio.I2C(board.SCL, board.SDA)
-        self.ads = ADS.ADS1115(self.i2c, data_rate=860)
+        self.i2c = busio.I2C(board.SCL, board.SDA, frequency=400000)
+        self.ads = ADS.ADS1115(self.i2c, data_rate=860, mode=Mode.CONTINUOUS)
         self.chan = AnalogIn(self.ads, ADS.P0)
         self.save_csv = not (csv_file_name is None)
         self.csv_file_name = csv_file_name
