@@ -9,18 +9,15 @@ from kivy.clock import Clock
 from datetime import datetime
 from BertecMan import Bertec
 from ViconMan import Vicon
-
-from typing import Any, Callable, List, Union
-import csv
-import logging
-from logging.handlers import RotatingFileHandler
+from logger import Logger
 
 import time
 
-RECORD_VICON = False
-TEST_DURATION = 60*6       # test duration in seconds
-DECLINE = False
-
+def round_nearest(x, a):
+    """
+    Round float x to the nearest increment a
+    """
+    return round(x / a) * a
     
 class BertecGUI(KivyApp):
     """
@@ -33,7 +30,10 @@ class BertecGUI(KivyApp):
 
     Updated 05/2024 - Katharine Walters (enabled self-paced decline walking) 
     """    
-    def __init__(self, test_duration=TEST_DURATION, log_name='log', record_vicon = RECORD_VICON, ip_address = '127.0.0.1'):
+    def __init__(self, test_duration=60*6, log_name='log', 
+                 record_vicon = False, vicon_ip_address = '127.0.0.1', 
+                 decline = False, start_speed = 0.8, acceleration = 0.3, 
+                 speed_delta = 0.05):
         super().__init__()
         self.test_duration = test_duration
         self.log_name = log_name[2:-1]
@@ -44,19 +44,19 @@ class BertecGUI(KivyApp):
         self.started = False
         self.completed = False
         self.record_vicon = record_vicon
+        self.start_speed = start_speed * self.direction # Initial speed (m/s)
+        self.acceleration = acceleration # Acceleration (m/s^2)
+        self.speed_delta = speed_delta # (m/s) increment when changing speed
 
         self.direction = 1
-        if DECLINE:
+        if decline:
             self.direction = -1
 
-        self.speed0 = 0.6 * self.direction   # Initial speed (m/s)
-        self.acc = 0.25   # Acceleration (m/s^2)
-
-        self.bertecObj = Bertec(viconPC_IP = ip_address)
+        self.bertecObj = Bertec(viconPC_IP = vicon_ip_address)
         self.bertecObj.start()
         print('Bertec communication set up')
 
-        self.log = SelfPacedLogger(log_name)
+        self.log = Logger(log_name)
         self.log.add_attributes(self, ['test_time','gui_time'])
         self.log.add_attributes(self.bertecObj, ['distance','speed'])
 
@@ -144,7 +144,7 @@ class BertecGUI(KivyApp):
 
         self.timer_text.text = "Time remaining: %.2f s" % self.get_time_remaining()
         if self.get_time_remaining() == 0:
-            self.bertecObj.write_command(0.0, 0.0, accR=self.acc, accL=self.acc)
+            self.bertecObj.write_command(0.0, 0.0, accR=self.acceleration, accL=self.acceleration)
             self.completed = True
 
         self.log.data()
@@ -167,7 +167,7 @@ class BertecGUI(KivyApp):
         pass
 
     def on_stop(self):
-        self.bertecObj.write_command(0, 0, accR=self.acc, accL=self.acc)
+        self.bertecObj.write_command(0, 0, accR=self.acceleration, accL=self.acceleration)
         self.bertecObj.stop()
         self.completed = True
         print('Bertec communication closed')
@@ -182,161 +182,31 @@ class BertecGUI(KivyApp):
     def start_button_callback(self, event):
         self._test_running = True
         self.started = True
-        self.bertecObj.write_command(self.speed0, self.speed0, accR=self.acc, accL=self.acc)
+        self.bertecObj.write_command(self.start_speed, self.start_speed, accR=self.acceleration, accL=self.acceleration)
 
     def stop_button_callback(self, event):
-        self.bertecObj.write_command(0.0, 0.0, accR=self.acc, accL=self.acc)
+        self.bertecObj.write_command(0.0, 0.0, accR=self.acceleration, accL=self.acceleration)
 
     def pause_button_callback(self, event):
         self._test_running = False
-        self.bertecObj.write_command(0.0, 0.0, accR=self.acc, accL=self.acc)
+        self.bertecObj.write_command(0.0, 0.0, accR=self.acceleration, accL=self.acceleration)
 
     def incremental_speed_change(self, direction, delta):
         """direction \in {-1, 1} to say whether to increase or decrease speed. """
-        speedL, speedR = self.bertecObj.get_belt_speed()         # TODO: The speed of bertec is not a constant
+        speedL, speedR = self.bertecObj.get_belt_speed()    
+
+        # Correction for the Bertec belt speed not being exactly constant     
+        speedL = round_nearest(speedL, self.speed_delta)
+        speedR = round_nearest(speedR, self.speed_delta)
+
+        # Calculate new speed
         speedAvg = (speedL + speedR) / 2
         newSpeed = (abs(speedAvg) + delta*direction)*self.direction
+
+        # Write new speed commmand to the Bertec
         self.bertecObj.write_command(newSpeed, newSpeed) 
 
         print("Speed changed from %.2f m/s, is now: %.2f m/s" % (speedAvg, newSpeed), end='\n')
-
-
-
-class SelfPacedLogger(logging.Logger):
-    """
-    Logger class is a class that logs attributes from a class to a csv file
-
-    Methods:
-        __init__(self, container: object, file_path: str, logger: logging.Logger = None) -> None
-        log(self) -> None
-    """
-
-    def __init__(
-        self,
-        file_path: str = "./osl",
-        log_format: str = "[%(asctime)s] %(levelname)s: %(message)s",
-    ) -> None:
-
-        self._file_path: str = file_path + ".log"
-
-        self._containers: list[Union[object, dict[Any, Any]]] = []
-        self._attributes: list[list[str]] = []
-
-        self._file = open(file_path + ".csv", "w", newline='')
-        self._writer = csv.writer(self._file)
-
-        self._log_levels = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO,
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR,
-            "CRITICAL": logging.CRITICAL,
-        }
-
-        super().__init__(__name__)
-        self.setLevel(logging.DEBUG)
-
-        self._std_formatter = logging.Formatter(log_format)
-
-        self._file_handler = RotatingFileHandler(
-            filename=self._file_path,
-            mode="w",
-            maxBytes=0,
-            backupCount=10,
-        )
-        self._file_handler.setLevel(level=logging.DEBUG)
-        self._file_handler.setFormatter(fmt=self._std_formatter)
-
-        self._stream_handler = logging.StreamHandler()
-        self._stream_handler.setLevel(level=logging.INFO)
-        self._stream_handler.setFormatter(fmt=self._std_formatter)
-
-        self.addHandler(hdlr=self._stream_handler)
-        self.addHandler(hdlr=self._file_handler)
-
-        self._is_logging = False
-
-    def __repr__(self) -> str:
-        return f"Logger"
-
-    def set_file_level(self, level: str = "DEBUG") -> None:
-        """
-        Sets the level of the logger
-
-        Args:
-            level (str): Level of the logger
-        """
-        if level not in self._log_levels.keys():
-            self.warning(msg=f"Invalid logging level: {level}")
-
-        self._file_handler.setLevel(level=self._log_levels[level])
-
-    def set_stream_level(self, level: str = "INFO") -> None:
-        """
-        Sets the level of the logger
-
-        Args:
-            level (str): Level of the logger
-        """
-        if level not in self._log_levels.keys():
-            self.warning(msg=f"Invalid logging level: {level}")
-
-        self._stream_handler.setLevel(level=self._log_levels[level])
-
-    def add_attributes(
-        self, container, attributes
-    ) -> None:
-        """
-        Adds class instance and attributes to log
-
-        Args:
-            container (object, dict): Container can either be an object (instance of a class)
-                or a Dict containing the attributes to be logged.
-            attributes (list[str]): List of attributes to log
-        """
-        self._containers.append(container)
-        self._attributes.append(attributes)
-
-    def data(self) -> None:
-        """
-        Logs the attributes of the class instance to the csv file
-        """
-        header_data = []
-        data = []
-
-        if not self._is_logging:
-            for container, attributes in zip(self._containers, self._attributes):
-                for attribute in attributes:
-                    if type(container) is dict:
-                        if "__main__" in container.values():
-                            header_data.append(f"{attribute}")
-                        else:
-                            header_data.append(f"{container}:{attribute}")
-                    else:
-                        if type(container).__repr__ is not object.__repr__:
-                            header_data.append(f"{container}:{attribute}")
-                        else:
-                            header_data.append(f"{attribute}")
-
-            self._writer.writerow(header_data)
-            self._is_logging = True
-
-        for container, attributes in zip(self._containers, self._attributes):
-            if isinstance(container, dict):
-                for attribute in attributes:
-                    data.append(container.get(attribute))
-            else:
-                for attribute in attributes:
-                    data.append(getattr(container, attribute))
-
-        self._writer.writerow(data)
-        self._file.flush()
-
-    def close(self) -> None:
-        """
-        Closes the csv file
-        """
-        self._file.close()
 
 
 if __name__ == '__main__':
