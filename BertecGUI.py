@@ -31,7 +31,7 @@ class BertecGUI(KivyApp):
     Updated 05/2024 - Katharine Walters (enabled self-paced decline walking) 
     """    
     def __init__(self, test_duration=60*6, log_name='log', 
-                 record_vicon = False, vicon_ip_address = '127.0.0.1', 
+                 record_vicon = False, ip_address = '127.0.0.1', 
                  decline = False, start_speed = 0.8, acceleration = 0.3, 
                  speed_delta = 0.05):
         super().__init__()
@@ -44,22 +44,27 @@ class BertecGUI(KivyApp):
         self.started = False
         self.completed = False
         self.record_vicon = record_vicon
-        self.start_speed = start_speed * self.direction # Initial speed (m/s)
-        self.acceleration = acceleration # Acceleration (m/s^2)
-        self.speed_delta = speed_delta # (m/s) increment when changing speed
 
+        # Belt speeds are negative for decline walking 
         self.direction = 1
         if decline:
             self.direction = -1
 
-        self.bertecObj = Bertec(viconPC_IP = vicon_ip_address)
+        self.start_speed = start_speed * self.direction # Initial speed (m/s)
+        self.acceleration = acceleration # Acceleration (m/s^2)
+        self.speed_delta = speed_delta # (m/s) increment when changing speed
+
+        # Initialize Bertec communication
+        self.bertecObj = Bertec(viconPC_IP = ip_address)
         self.bertecObj.start()
         print('Bertec communication set up')
 
+        # Initialize log 
         self.log = Logger(log_name)
         self.log.add_attributes(self, ['test_time','gui_time'])
         self.log.add_attributes(self.bertecObj, ['distance','speed'])
 
+        # Initialize vicon communication
         if self.record_vicon == True:
             self.vicon = Vicon()
 
