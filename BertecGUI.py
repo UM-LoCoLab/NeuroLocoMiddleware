@@ -152,7 +152,7 @@ class BertecGUI(KivyApp):
             self.bertecObj.write_command(0.0, 0.0, accR=self.acceleration, accL=self.acceleration)
             self.completed = True
 
-        self.log.data()
+        self.log.update()
 
         self.last_update_time = time_now
         pass
