@@ -1,3 +1,4 @@
 *.pyc
 *.csv
 *.hdf5
+*.DS_Store
