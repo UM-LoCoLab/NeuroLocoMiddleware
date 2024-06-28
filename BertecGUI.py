@@ -9,7 +9,7 @@ from kivy.clock import Clock
 from datetime import datetime
 from BertecMan import Bertec
 from ViconMan import Vicon
-from logger import Logger
+from opensourceleg.utilities.logger import Logger
 
 import time
 
