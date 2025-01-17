@@ -5,6 +5,13 @@ from threading import Thread
 import numpy as np
 import struct
 
+"""
+This script can only run if firewalls on the PC running the Bertec are disabled. 
+
+To disable PC firewalls, open the command prompt as an administrator and run the following command:
+netsh advfirewall set allprofiles state off
+"""
+
 BERTEC_MAX_VEL = 3000 # Treadmill max velocity is 3 m/s
 
 class TrapezoidalIntegrator:
