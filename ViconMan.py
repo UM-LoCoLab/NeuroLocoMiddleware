@@ -18,7 +18,7 @@ class Vicon:
         self.destinationIP = viconPC_IP
         self.destinationPort = viconPC_port
         self.viconPath = viconPath
-        self.delayPriorToRecord_ms = 1
+        self.delayPriorToRecord_ms = 0
         self.fileName = ''
         self.fileDescription = ''
 
