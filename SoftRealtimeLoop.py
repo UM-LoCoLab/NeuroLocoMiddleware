@@ -34,7 +34,8 @@ class LoopKiller:
     def __init__(self, fade_time=0.0):
         signal.signal(signal.SIGTERM, self.handle_signal)
         signal.signal(signal.SIGINT, self.handle_signal)
-        signal.signal(signal.SIGHUP, self.handle_signal)
+        if os.name == 'posix':
+            signal.signal(signal.SIGHUP, self.handle_signal)
         self._fade_time = fade_time
         self._soft_kill_time = None
 
