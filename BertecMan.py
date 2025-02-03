@@ -1,5 +1,5 @@
 import socket
-from time import time
+from time import time, sleep
 from threading import Thread
 import numpy as np
 import struct
@@ -80,12 +80,16 @@ class Bertec:
         return self
     
     def stop(self):
+        self.write_command(0.0, 0.0)  
+        self.thread.join()
+        sleep(1)
+        self.sock.close()
         self.stopped = True
+        print("Bertec closed")
 
     def __del__(self):
-        self.thread.join()
-        self.sock.close()
-        print("Bertec closed")
+        if not self.stopped:
+            self.stop()
 
     def _update(self):
         while True:
