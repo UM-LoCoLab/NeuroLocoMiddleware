@@ -1,6 +1,5 @@
 import socket
 from time import time
-from SoftRealtimeLoop import SoftRealtimeLoop
 from threading import Thread
 import numpy as np
 import struct
