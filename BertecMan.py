@@ -81,10 +81,10 @@ class Bertec:
     
     def stop(self):
         self.write_command(0.0, 0.0)  
+        self.stopped = True # NOTE: This needs to be set before calling thread.join()
         self.thread.join()
         sleep(1)
         self.sock.close()
-        self.stopped = True
         print("Bertec closed")
 
     def __del__(self):
