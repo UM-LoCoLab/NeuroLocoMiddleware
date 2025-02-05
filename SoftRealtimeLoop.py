@@ -32,10 +32,14 @@ __version__="2.0.0"
 
 class LoopKiller:
     def __init__(self, fade_time=0.0):
-        signal.signal(signal.SIGTERM, self.handle_signal)
-        signal.signal(signal.SIGINT, self.handle_signal)
         if os.name == 'posix':
-            signal.signal(signal.SIGHUP, self.handle_signal)
+            self.signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]
+        else:
+            self.signals = [signal.SIGTERM, signal.SIGINT]
+
+        for sig in self.signals:
+            signal.signal(sig, self.handle_signal)
+        
         self._fade_time = fade_time
         self._soft_kill_time = None
 
@@ -232,9 +236,10 @@ class SoftRealtimeLoop(object):
         # We don't busy wait all the time since that gives problem with dephy
         time_to_busy_wait = time.monotonic() + PRECISION_OF_SLEEP
         while time.monotonic() < time_to_busy_wait and not self.killer.kill_now:
-            if signal.sigtimedwait([signal.SIGTERM,signal.SIGINT,signal.SIGHUP], 0):
-                self.stop()
-                raise StopIteration
+            if os.name == 'posix':
+                if signal.sigtimedwait(self.killer.signals, 0):
+                    self.stop()
+                    raise StopIteration
             
         ## Store the current time
         current_time = time.monotonic()
@@ -325,8 +330,9 @@ class SoftRealtimeLoop(object):
 
         # Busy wait until the time we should be running at
         while time.monotonic()<self.t1 and not self.killer.kill_now:
-            if signal.sigtimedwait([signal.SIGTERM,signal.SIGINT,signal.SIGHUP], 0):
-                self.stop()
+            if os.name == 'posix':
+                if signal.sigtimedwait(self.killer.signals, 0):
+                    self.stop()
 
         # If the loop is killed while we were waiting, raise a StopIteration
         if self.killer.kill_now:
@@ -360,5 +366,6 @@ class SoftRealtimeLoop(object):
         self._report_error(error, sleep_curr_loop)
 
         return self.t1-self.t0
+
 
 
