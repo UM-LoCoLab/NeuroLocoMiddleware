@@ -1,3 +1,34 @@
+# NeuroLoco Middleware
+This repo contains useful python tools for running experiments. It is jointly maintained by the Locomotor Control Systems Lab and the Neurobionics Lab at the University of Michigan. 
+
+## Contents Overview
+### Code Tools
+- `SoftRealtimeLoop.py` - A class designed to allow clean exits from infinite loops with the potential for post-loop cleanup operations executing. There is a parallel version in the Open-Source Leg library that should be identical. 
+- `StatProfiler.py` - A class that helps time the duration of sections of code. It includes both matlab-style tic-toc timing and function decoration timing.
+
+### Communication 
+- `UDPBinarySynch.py` - Classes used to synchonize code between two computers via UDP.
+- `VariableUpdater.py` - A class used to pass variable information across processes and computers via zmq.
+- `ZMQ_PubSub.py` - A wrapper class for handling publish/subscribe messages between processes and computers via zmq.
+- `ZmqBinarySynch.py` - Similar to `UDPBinarySynch.py`, but implemented in zmq.
+  
+### Equipment Managing/Interfacing 
+- `BertecGUI.py` - A GUI that provides a user interface for the Bertec Treadmill with simple increase/decrease speed buttons. A typical use case is to run this on a tablet and allow a participant to change the treadmill speed at will, similar to a standard exercise treadmill.
+- `BertecMan.py` - A class to control the Bertec treadmill from python.
+- `ViconMan.py` - A class used to start and stop Vicon recordings from python.
+
+### Math
+- `LinearFilter.py` - A discrete state-space linear filter.
+
+### Sensor Interfacing
+- `AdcManager.py` - A wrapper class for using the adafruit ads1115 ADC module.
+- `AhrsManager.py` - A wrapper class to handle interfacing with the Microstrain AHRS IMU. NOTE: The implementation in the Open-Source Leg library may be more up to date.
+
+
+
+## Contributing
+To contribute, please fork the repo, make your change, and submit a pull request. 
+
 ## Graveyard :skull:
 ### Modules
 These files used to exist but have since been deleted. In some world where you need them, here's their final commit:
