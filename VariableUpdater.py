@@ -4,20 +4,20 @@ import time
 
 class VariableUpdater:
     """
-    This class has a floating value called 'variable' that can be updated by a 
+    This class has a value called 'variable' that can be updated by a 
     separate process. The class listens for updates to the variable and updates
     it accordingly. Multiple instances of this class can be created to listen
     for updates to different variables as long as they have different 
     subscription ports.
     """
-    def __init__(self, initial_value:float, sub_port:str="5551", 
+    def __init__(self, initial_value, sub_port:str="5551", 
                        update_interval:int=1):
         """
         Initialize the VariableUpdater object with the initial value of the
         variable and the subscription port to listen for updates.   
 
         Args:
-            initial_value (float): The initial value of the variable
+            initial_value: The initial value of the variable (can be any Python object)
             sub_port (str, optional): The subscription port to listen for updates.
                 Defaults to "5551".
             update_interval (int, optional): The interval at which to check for
@@ -44,9 +44,8 @@ class VariableUpdater:
             try:
                 # Receive a Python object
                 message = self.subscriber.recv_pyobj(flags=zmq.NOBLOCK)  
-                # Ensure it's a float
-                if isinstance(message, float):  
-                    self.variable = message
+                # Update the variable with the received object
+                self.variable = message
             # If we don't receive a message, continue loop
             except zmq.Again:
                 pass 
@@ -57,6 +56,10 @@ def send_update(new_value, pub_port="5551"):
     """
     Send an update to the variable to the subscriber listening on the specified
     port.
+
+    Args:
+        new_value: The new value to send (can be any Python object)
+        pub_port (str, optional): The port to publish the update on. Defaults to "5551".
     """
     # Create a ZeroMQ context to generate a publish socket
     context = zmq.Context()
