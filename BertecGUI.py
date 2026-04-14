@@ -9,7 +9,9 @@ from kivy.clock import Clock
 from datetime import datetime
 from BertecMan import Bertec
 from ViconMan import Vicon
-from opensourceleg.tools.logger import Logger
+import pandas as pd
+import csv
+import numpy as np
 
 import time
 
@@ -60,9 +62,10 @@ class BertecGUI(KivyApp):
         print('Bertec communication set up')
 
         # Initialize log 
-        self.log = Logger(log_name)
-        self.log.add_attributes(self, ['test_time','gui_time'])
-        self.log.add_attributes(self.bertecObj, ['distance','speed'])
+        self.log_columns = ['test_time', 'gui_time', 'distance', 'speed']
+        self.csv_file = open(f"{self.log_name}.csv", mode='w', newline="")
+        self.csv_writer = csv.writer(self.csv_file)
+        self.csv_writer.writerow(self.log_columns)
 
         # Initialize vicon communication
         if self.record_vicon == True:
@@ -152,7 +155,7 @@ class BertecGUI(KivyApp):
             self.bertecObj.write_command(0.0, 0.0, accR=self.acceleration, accL=self.acceleration)
             self.completed = True
 
-        self.log.update()
+        self.csv_writer.writerow([self.test_time, self.gui_time, self.bertecObj.distance, self.bertecObj.speed])
 
         self.last_update_time = time_now
         pass
